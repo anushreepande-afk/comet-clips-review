@@ -3,6 +3,7 @@ from supabase import create_client, Client
 from typing import List, Dict, Optional
 
 
+@st.cache_resource
 def _client() -> Client:
     url = st.secrets["supabase"]["url"]
     key = st.secrets["supabase"]["key"]

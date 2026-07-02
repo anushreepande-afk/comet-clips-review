@@ -1,5 +1,4 @@
 import streamlit as st
-from typing import List
 
 
 ALLOWED_DOMAINS = ("@jiostar.com", "@viacom18.com")
