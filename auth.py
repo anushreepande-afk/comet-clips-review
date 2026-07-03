@@ -18,7 +18,7 @@ def require_auth() -> str:
     if not st.user.is_logged_in:
         st.title("Comet Clips Review")
         st.markdown("Sign in with your JioStar Google account to continue.")
-        st.button("Sign in with Google", on_click=st.login, args=["google"])
+        st.button("Sign in with Google", on_click=lambda: st.login("google"))
         st.stop()
 
     email = st.user.email
