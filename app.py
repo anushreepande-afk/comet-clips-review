@@ -4,11 +4,13 @@ Stakeholders rate video clips (1–10); ratings stored in Supabase.
 """
 from __future__ import annotations
 
+import html
 import streamlit as st
+from collections import defaultdict
 from typing import Dict, List, Optional
 
 from auth import require_auth, is_admin
-from data import load_clips, clips_for, all_content_ids, tier_for_score, extract_drive_file_id
+from data import load_clips, clips_for, all_content_ids, tier_for_score
 from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, avg_score_for_clips
 
 # ---------------------------------------------------------------------------
@@ -180,6 +182,51 @@ def next_unrated_idx(
     # All rated — stay on current
     return current_idx
 
+def _score_btn(val: int, score_key: str) -> None:
+    ss[score_key] = val
+
+def _render_reviewer_row(row: Dict) -> None:
+    rev_email: str = row["reviewer_email"]
+    rev_score: int = row["score"]
+    rev_tier = tier_for_score(rev_score)
+    rev_name = rev_email.split("@")[0]
+    safe_rev_name = html.escape(rev_name)
+    safe_rev_email = html.escape(rev_email)
+    bar_pct = int(rev_score / 10 * 100)
+    st.markdown(
+        f'<div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">'
+        f'<span style="color:#d1d5db; font-size:0.82rem; width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{safe_rev_email}">{safe_rev_name}</span>'
+        f'<div class="reviewer-bar-bg">'
+        f'<div class="reviewer-bar-fill" style="width:{bar_pct}%;"></div>'
+        f'</div>'
+        f'<span style="color:#f0f0f0; font-weight:700; font-size:0.85rem; width:20px; text-align:right;">{rev_score}</span>'
+        f'&nbsp;{badge_html(rev_tier)}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+# ---------------------------------------------------------------------------
+# Fetch data once (before sidebar and main area reuse)
+# ---------------------------------------------------------------------------
+clips: List[Dict] = clips_for(ss.content_id, ss.clip_type)
+n_clips = len(clips)
+
+my_ratings: Dict[str, int] = {}
+all_ratings: List[Dict] = []
+_avg_map: Dict[str, Optional[float]] = {}
+
+if n_clips > 0:
+    my_ratings = fetch_my_ratings(email, ss.content_id, ss.clip_type)
+    all_ratings = fetch_ratings_for_tab(ss.content_id, ss.clip_type)
+
+    # Pre-compute avg scores per clip_id (O(N) instead of O(N²))
+    _score_groups: Dict[str, list] = defaultdict(list)
+    for r in all_ratings:
+        if r["content_id"] == ss.content_id and r["clip_type"] == ss.clip_type:
+            _score_groups[r["clip_id"]].append(r["score"])
+    for cid, scores in _score_groups.items():
+        _avg_map[cid] = round(sum(scores) / len(scores), 1)
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -222,17 +269,9 @@ with st.sidebar:
 
     st.divider()
 
-    # Clip list
-    clips: List[Dict] = clips_for(ss.content_id, ss.clip_type)
-    n_clips = len(clips)
-
     if n_clips == 0:
         st.info("No clips for this selection.")
     else:
-        # Fetch data needed for sidebar labels
-        my_ratings: Dict[str, int] = fetch_my_ratings(email, ss.content_id, ss.clip_type)
-        all_ratings: List[Dict] = fetch_ratings_for_tab(ss.content_id, ss.clip_type)
-
         rated_count = sum(1 for c in clips if c["clip_id"] in my_ratings)
 
         st.markdown('<div class="section-label">Clips</div>', unsafe_allow_html=True)
@@ -242,7 +281,7 @@ with st.sidebar:
 
             # Build label depending on active tab
             if ss.active_tab == "admin":
-                avg = avg_score_for_clips(all_ratings, cid, ss.content_id, ss.clip_type)
+                avg = _avg_map.get(cid)
                 if avg is not None:
                     label = f"{'▶ ' if is_active else ''}{cid}  ·  {avg}"
                 else:
@@ -284,10 +323,6 @@ tier_clip: str = clip.get("tier", "Bronze")
 score_algo: int = int(clip.get("score", 0))
 watch_prob: int = int(clip.get("watch_prob", 0))
 
-# Re-fetch ratings now that we know the clip
-my_ratings = fetch_my_ratings(email, ss.content_id, ss.clip_type)
-all_ratings = fetch_ratings_for_tab(ss.content_id, ss.clip_type)
-
 # Pre-fill session state score from existing rating (do once per clip load)
 score_key = f"score_{clip_id}"
 if score_key not in ss and clip_id in my_ratings:
@@ -323,25 +358,29 @@ with tabs[0]:
         st.markdown('<div class="clip-card">', unsafe_allow_html=True)
 
         # Header row: clip id + type label
+        safe_clip_id = html.escape(clip_id)
         type_label = CLIP_TYPE_LABELS.get(ss.clip_type, ss.clip_type)
+        safe_type_label = html.escape(type_label)
         st.markdown(
-            f"<span style='font-size:1.1rem; font-weight:700;'>{clip_id}</span> "
-            f"<span style='color:#9ca3af; font-size:0.85rem;'>{type_label}</span>",
+            f"<span style='font-size:1.1rem; font-weight:700;'>{safe_clip_id}</span> "
+            f"<span style='color:#9ca3af; font-size:0.85rem;'>{safe_type_label}</span>",
             unsafe_allow_html=True,
         )
 
         # Genre badge — neutral pill showing the genre_cms value (no tier color)
         st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
         genre = clip.get("genre_cms", "—")
+        safe_genre = html.escape(genre)
         st.markdown(
             f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;'
-            f'padding:3px 10px;font-size:12px;font-weight:600;">{genre}</span>',
+            f'padding:3px 10px;font-size:12px;font-weight:600;">{safe_genre}</span>',
             unsafe_allow_html=True,
         )
 
         # Description
         st.markdown('<div class="section-label" style="margin-top:10px;">Description</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="desc-text">{clip.get("description", "")}</div>', unsafe_allow_html=True)
+        safe_desc = html.escape(clip.get("description", ""))
+        st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
 
         # Current rating badge (if already rated)
         existing_score: Optional[int] = my_ratings.get(clip_id)
@@ -361,16 +400,13 @@ with tabs[0]:
         # Rating buttons — 3 groups
         selected_score: Optional[int] = ss.get(score_key)
 
-        def _score_btn(val: int) -> None:
-            ss[score_key] = val
-
         # Bronze 1–3
         st.markdown("<span style='color:#fed7aa; font-size:0.75rem; font-weight:600;'>Bronze · 1–3</span>", unsafe_allow_html=True)
         bronze_cols = st.columns(3)
         for i, val in enumerate([1, 2, 3]):
             btn_t = "primary" if selected_score == val else "secondary"
             if bronze_cols[i].button(str(val), key=f"btn_{clip_id}_{val}", type=btn_t, use_container_width=True):
-                _score_btn(val)
+                _score_btn(val, score_key)
                 st.rerun()
 
         # Silver 4–6
@@ -379,7 +415,7 @@ with tabs[0]:
         for i, val in enumerate([4, 5, 6]):
             btn_t = "primary" if selected_score == val else "secondary"
             if silver_cols[i].button(str(val), key=f"btn_{clip_id}_{val}", type=btn_t, use_container_width=True):
-                _score_btn(val)
+                _score_btn(val, score_key)
                 st.rerun()
 
         # Gold 7–10
@@ -388,7 +424,7 @@ with tabs[0]:
         for i, val in enumerate([7, 8, 9, 10]):
             btn_t = "primary" if selected_score == val else "secondary"
             if gold_cols[i].button(str(val), key=f"btn_{clip_id}_{val}", type=btn_t, use_container_width=True):
-                _score_btn(val)
+                _score_btn(val, score_key)
                 st.rerun()
 
         # Submit button
@@ -427,10 +463,12 @@ if admin and len(tabs) > 1:
             st.markdown('<div class="clip-card">', unsafe_allow_html=True)
 
             # Header
+            safe_clip_id2 = html.escape(clip_id)
             type_label2 = CLIP_TYPE_LABELS.get(ss.clip_type, ss.clip_type)
+            safe_type_label2 = html.escape(type_label2)
             st.markdown(
-                f"<span style='font-size:1.1rem; font-weight:700;'>{clip_id}</span> "
-                f"<span style='color:#9ca3af; font-size:0.85rem;'>{type_label2}</span>",
+                f"<span style='font-size:1.1rem; font-weight:700;'>{safe_clip_id2}</span> "
+                f"<span style='color:#9ca3af; font-size:0.85rem;'>{safe_type_label2}</span>",
                 unsafe_allow_html=True,
             )
 
@@ -455,27 +493,9 @@ if admin and len(tabs) > 1:
                 and r["clip_type"] == ss.clip_type
             ]
 
-            avg = avg_score_for_clips(all_ratings, clip_id, ss.content_id, ss.clip_type)
+            avg = _avg_map.get(clip_id)
 
             st.markdown('<div class="section-label">Reviewer ratings</div>', unsafe_allow_html=True)
-
-            def _render_reviewer_row(row: Dict) -> None:
-                rev_email: str = row["reviewer_email"]
-                rev_score: int = row["score"]
-                rev_tier = tier_for_score(rev_score)
-                rev_name = rev_email.split("@")[0]
-                bar_pct = int(rev_score / 10 * 100)
-                st.markdown(
-                    f'<div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">'
-                    f'<span style="color:#d1d5db; font-size:0.82rem; width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{rev_email}">{rev_name}</span>'
-                    f'<div class="reviewer-bar-bg">'
-                    f'<div class="reviewer-bar-fill" style="width:{bar_pct}%;"></div>'
-                    f'</div>'
-                    f'<span style="color:#f0f0f0; font-weight:700; font-size:0.85rem; width:20px; text-align:right;">{rev_score}</span>'
-                    f'&nbsp;{badge_html(rev_tier)}'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
 
             if not clip_ratings:
                 st.markdown('<span style="color:#6b7280; font-size:0.85rem;">No ratings yet.</span>', unsafe_allow_html=True)

@@ -10,7 +10,7 @@ def is_allowed_email(email: str) -> bool:
 
 def is_admin(email: str) -> bool:
     admin_list = st.secrets.get("admin", {}).get("emails", [])
-    return email.lower() in [e.lower() for e in admin_list]
+    return email.lower() in {e.lower() for e in admin_list}
 
 
 def require_auth() -> str:

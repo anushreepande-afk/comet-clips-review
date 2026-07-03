@@ -1,10 +1,10 @@
 import json
 import os
 import re
+import streamlit as st
 from typing import List, Dict, Optional
 
 _CLIPS_JSON = os.path.join(os.path.dirname(__file__), "clips_data.json")
-_cache: list = []
 
 
 def tier_for_score(score: int) -> str:
@@ -20,20 +20,21 @@ def extract_drive_file_id(drive_url: str) -> str:
     return match.group(1) if match else ""
 
 
+@st.cache_data
 def load_clips() -> List[Dict]:
-    global _cache
-    if not _cache:
-        with open(_CLIPS_JSON, "r") as f:
-            raw = json.load(f)
-        for clip in raw:
-            if clip.get("score") == "" or clip.get("score") is None:
-                clip["score"] = 0
-            if clip.get("tier") == "" or clip.get("tier") is None:
-                clip["tier"] = "Bronze"
-            if clip.get("watch_prob") == "" or clip.get("watch_prob") is None:
-                clip["watch_prob"] = 0
-        _cache = raw
-    return _cache
+    with open(_CLIPS_JSON, "r") as f:
+        raw = json.load(f)
+    result = []
+    for clip in raw:
+        c = dict(clip)  # copy to avoid mutating source
+        if c.get("score") == "" or c.get("score") is None:
+            c["score"] = 0
+        if c.get("tier") == "" or c.get("tier") is None:
+            c["tier"] = "Bronze"
+        if c.get("watch_prob") == "" or c.get("watch_prob") is None:
+            c["watch_prob"] = 0
+        result.append(c)
+    return result
 
 
 def clips_for(content_id: str, clip_type: str) -> List[Dict]:
