@@ -9,6 +9,3 @@ primaryColor = "#a855f7"
 headless = true
 enableXsrfProtection = false
 
-[browser]
-serverAddress = "localhost"
-serverPort = 8501
