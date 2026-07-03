@@ -330,12 +330,14 @@ with tabs[0]:
             unsafe_allow_html=True,
         )
 
-        # Genre badge
+        # Genre badge — neutral pill showing the genre_cms value (no tier color)
         st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
         genre = clip.get("genre_cms", "—")
-        # Genre uses clip's algorithm tier for colouring the badge
-        st.markdown(badge_html(tier_clip), unsafe_allow_html=True)
-        st.markdown(f'<div class="desc-text">{genre}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;'
+            f'padding:3px 10px;font-size:12px;font-weight:600;">{genre}</span>',
+            unsafe_allow_html=True,
+        )
 
         # Description
         st.markdown('<div class="section-label" style="margin-top:10px;">Description</div>', unsafe_allow_html=True)
