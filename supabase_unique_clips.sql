@@ -161,3 +161,10 @@ begin
             on delete restrict;
     end if;
 end $$;
+
+-- The Streamlit app currently connects with the Supabase anon key, not a
+-- Supabase-authenticated user. Keep RLS disabled unless matching policies are
+-- added later.
+alter table public.clip_sets disable row level security;
+alter table public.clips disable row level security;
+alter table public.ratings disable row level security;

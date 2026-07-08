@@ -114,10 +114,35 @@ def _is_schema_error(exc: Exception) -> bool:
         "column",
         "constraint",
         "foreign key",
+        "no unique",
+        "on conflict",
+        "permission denied",
         "relation",
+        "row-level security",
         "schema cache",
+        "unique or exclusion",
     ]
     return any(marker in message for marker in schema_markers)
+
+
+def _upsert_legacy_rating(
+    clip_id: str,
+    content_id: str,
+    clip_type: str,
+    reviewer_email: str,
+    score: int,
+) -> None:
+    legacy_payload = _build_upsert_payload(
+        clip_id,
+        content_id,
+        clip_type,
+        reviewer_email,
+        score,
+    )
+    _client().table("ratings").upsert(
+        legacy_payload,
+        on_conflict="clip_id,content_id,clip_type,reviewer_email",
+    ).execute()
 
 
 def upsert_rating(
@@ -142,32 +167,24 @@ def upsert_rating(
 
     try:
         if clip:
-            _client().table("clip_sets").upsert(
-                _build_clip_set_payload(clip),
-                on_conflict="clip_set_key",
-            ).execute()
-            _client().table("clips").upsert(
-                _build_clip_payload(clip),
-                on_conflict="unique_clip_key",
-            ).execute()
+            try:
+                _client().table("clip_sets").upsert(
+                    _build_clip_set_payload(clip),
+                    on_conflict="clip_set_key",
+                ).execute()
+                _client().table("clips").upsert(
+                    _build_clip_payload(clip),
+                    on_conflict="unique_clip_key",
+                ).execute()
+            except Exception:
+                _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score)
+                return
         _client().table("ratings").upsert(
             rating_payload,
             on_conflict="unique_clip_key,reviewer_email",
         ).execute()
-    except Exception as exc:
-        if not _is_schema_error(exc):
-            raise
-        legacy_payload = _build_upsert_payload(
-            clip_id,
-            content_id,
-            clip_type,
-            reviewer_email,
-            score,
-        )
-        _client().table("ratings").upsert(
-            legacy_payload,
-            on_conflict="clip_id,content_id,clip_type,reviewer_email",
-        ).execute()
+    except Exception:
+        _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score)
 
 
 def fetch_ratings_for_tab(content_id: str, clip_type: str) -> List[Dict]:
