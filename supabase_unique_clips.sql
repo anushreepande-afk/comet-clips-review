@@ -120,6 +120,9 @@ drop index if exists public.ratings_unique_clip_reviewer_idx;
 create unique index ratings_unique_clip_reviewer_idx
     on public.ratings (unique_clip_key, reviewer_email);
 
+create unique index if not exists ratings_legacy_clip_reviewer_idx
+    on public.ratings (clip_id, content_id, clip_type, reviewer_email);
+
 do $$
 begin
     if not exists (

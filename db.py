@@ -132,17 +132,29 @@ def _upsert_legacy_rating(
     reviewer_email: str,
     score: int,
 ) -> None:
-    legacy_payload = _build_upsert_payload(
+    payload = _build_upsert_payload(
         clip_id,
         content_id,
         clip_type,
         reviewer_email,
         score,
     )
-    _client().table("ratings").upsert(
-        legacy_payload,
-        on_conflict="clip_id,content_id,clip_type,reviewer_email",
-    ).execute()
+    match = {
+        "clip_id": clip_id,
+        "content_id": content_id,
+        "clip_type": clip_type,
+        "reviewer_email": reviewer_email,
+    }
+    update_resp = (
+        _client()
+        .table("ratings")
+        .update({"score": score})
+        .match(match)
+        .execute()
+    )
+    if update_resp.data:
+        return
+    _client().table("ratings").insert(payload).execute()
 
 
 def upsert_rating(

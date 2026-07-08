@@ -489,7 +489,14 @@ with tabs[0]:
         ):
             score_to_save = int(selected_score)  # type: ignore[arg-type]
             tier_saved = tier_for_score(score_to_save)
-            upsert_rating(clip_id, ss.content_id, ss.clip_type, email, score_to_save, clip=clip)
+            try:
+                upsert_rating(clip_id, ss.content_id, ss.clip_type, email, score_to_save, clip=clip)
+            except Exception:
+                st.error(
+                    "Could not save this rating. Please rerun supabase_unique_clips.sql in Supabase, "
+                    "then choose Run without RLS."
+                )
+                st.stop()
             # Update local cache
             my_ratings[clip_id] = score_to_save
             ss.flash = f"Saved — {score_to_save} ({tier_saved})"
