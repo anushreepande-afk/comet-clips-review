@@ -1,5 +1,8 @@
 # Deployment Notes
 
+For operating steps after deployment, including Supabase rating checks and Excel
+rating exports, see `SOP.md`.
+
 ## Streamlit Cloud access
 
 If the app URL redirects between `share.streamlit.io/-/auth/app` and the app URL,
