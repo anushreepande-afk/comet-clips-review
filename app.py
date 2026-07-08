@@ -415,10 +415,10 @@ with tabs[0]:
         if clip.get("source_status") and clip.get("source_status") != "OK":
             st.warning(f"Source status: {clip['source_status']}")
 
-        # Genre badge — neutral pill showing the genre_cms value (no tier color)
+        # Genre badge: use only the Genre CMS value from the source JSON.
         st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
-        genre = clip.get("genre_cms", "—")
-        safe_genre = html.escape(genre)
+        genre = clip.get("genre_cms") or "—"
+        safe_genre = html.escape(str(genre))
         st.markdown(
             f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;padding:4px 12px;font-size:14px;font-weight:700;">{safe_genre}</span>',
             unsafe_allow_html=True,

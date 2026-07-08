@@ -48,6 +48,10 @@ def test_new_dataset_shape():
     assert len(clips) == 427
     assert {c["clip_type"] for c in clips} == set(OUTPUT_SET_ORDER)
 
+def test_genre_cms_stays_separate_from_generic_genre():
+    clips = load_clips()
+    assert any(c.get("genre_cms") == "Sports" and c.get("genre") == "Sports Drama" for c in clips)
+
 def test_output_sets_for_each_content():
     for content_id in all_content_ids():
         assert output_sets_for(content_id) == OUTPUT_SET_ORDER
