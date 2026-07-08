@@ -1,6 +1,6 @@
 import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from data import (
+from clip_data import (
     OUTPUT_SET_ORDER,
     all_content_ids,
     extract_drive_file_id,

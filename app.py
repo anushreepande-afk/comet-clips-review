@@ -10,7 +10,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from auth import require_auth, is_admin
-from data import (
+from clip_data import (
     OUTPUT_SET_LABELS,
     all_content_ids,
     clips_for,
