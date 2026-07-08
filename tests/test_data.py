@@ -1,6 +1,15 @@
 import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from data import load_clips, tier_for_score, extract_drive_file_id
+from data import (
+    OUTPUT_SET_ORDER,
+    all_content_ids,
+    extract_drive_file_id,
+    load_clips,
+    load_manifest,
+    manifest_for,
+    output_sets_for,
+    tier_for_score,
+)
 
 def test_tier_for_score():
     assert tier_for_score(10) == "Gold"
@@ -20,11 +29,31 @@ def test_load_clips_structure():
     first = clips[0]
     assert "clip_id"       in first
     assert "content_id"    in first
+    assert "content_name"  in first
     assert "clip_type"     in first
+    assert "output_label"  in first
     assert "genre_cms"     in first
     assert "description"   in first
     assert "drive_file_id" in first
     assert "score"         in first
     assert "tier"          in first
     assert "watch_prob"    in first
-    assert first["clip_type"] in ("momenttype", "cliffhanger")
+    assert first["clip_type"] in OUTPUT_SET_ORDER
+
+def test_new_dataset_shape():
+    clips = load_clips()
+    manifest = load_manifest()
+    assert len(all_content_ids()) == 11
+    assert len(manifest) == 44
+    assert len(clips) == 427
+    assert {c["clip_type"] for c in clips} == set(OUTPUT_SET_ORDER)
+
+def test_output_sets_for_each_content():
+    for content_id in all_content_ids():
+        assert output_sets_for(content_id) == OUTPUT_SET_ORDER
+
+def test_manifest_tracks_missing_sources():
+    rudra_ch_pro = manifest_for("1260084562", "cliffhanger_pro")
+    rudra_mt_pro = manifest_for("1260084562", "momenttype_pro")
+    assert rudra_ch_pro["source_status"] == "JSON and clip folder missing"
+    assert rudra_mt_pro["source_status"] == "JSON missing"

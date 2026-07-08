@@ -10,7 +10,15 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from auth import require_auth, is_admin
-from data import load_clips, clips_for, all_content_ids, tier_for_score
+from data import (
+    OUTPUT_SET_LABELS,
+    all_content_ids,
+    clips_for,
+    content_name_for,
+    manifest_for,
+    output_sets_for,
+    tier_for_score,
+)
 from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, avg_score_for_clips
 
 # ---------------------------------------------------------------------------
@@ -131,7 +139,7 @@ content_ids = all_content_ids()
 
 _defaults: Dict = {
     "content_id": content_ids[0],
-    "clip_type":  "momenttype",
+    "clip_type":  "cliffhanger_pro",
     "active_idx": 0,
     "flash":      None,
     "active_tab": "reviewer",
@@ -145,11 +153,6 @@ ss = st.session_state
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-CLIP_TYPE_LABELS: Dict[str, str] = {
-    "momenttype": "Option 1",
-    "cliffhanger": "Option 2",
-}
-
 TIER_BADGE: Dict[str, str] = {
     "Gold":   "badge-gold",
     "Silver": "badge-silver",
@@ -161,6 +164,12 @@ def badge_html(tier: str) -> str:
     return f'<span class="{css}">{tier}</span>'
 
 def drive_embed_html(file_id: str) -> str:
+    if not file_id:
+        return (
+            '<div class="video-wrapper" style="display:flex;align-items:center;justify-content:center;color:#9ca3af;">'
+            "Clip file unavailable"
+            "</div>"
+        )
     src = f"https://drive.google.com/file/d/{file_id}/preview"
     return (
         '<div class="video-wrapper">'
@@ -205,11 +214,18 @@ def _render_reviewer_row(row: Dict) -> None:
         unsafe_allow_html=True,
     )
 
+def _compact_meta(value: object, max_chars: int = 900) -> str:
+    text = str(value or "").strip()
+    if len(text) > max_chars:
+        return text[: max_chars - 1].rstrip() + "…"
+    return text
+
 # ---------------------------------------------------------------------------
 # Fetch data once (before sidebar and main area reuse)
 # ---------------------------------------------------------------------------
 clips: List[Dict] = clips_for(ss.content_id, ss.clip_type)
 n_clips = len(clips)
+current_manifest: Optional[Dict] = manifest_for(ss.content_id, ss.clip_type)
 
 my_ratings: Dict[str, int] = {}
 all_ratings: List[Dict] = []
@@ -241,27 +257,30 @@ with st.sidebar:
     # Content ID selector
     content_id_idx = content_ids.index(ss.content_id) if ss.content_id in content_ids else 0
     chosen_cid = st.selectbox(
-        "Content ID",
+        "Content",
         options=content_ids,
         index=content_id_idx,
+        format_func=lambda cid: f"{content_name_for(cid)} ({cid})",
         key="_sidebar_content_id",
     )
     if chosen_cid != ss.content_id:
         ss.content_id = chosen_cid
         ss.active_idx = 0
+        available_sets = output_sets_for(chosen_cid)
+        ss.clip_type = available_sets[0] if available_sets else "cliffhanger_pro"
         st.rerun()
 
-    # Clip type radio
-    type_options = ["Option 1", "Option 2"]
-    current_label = CLIP_TYPE_LABELS.get(ss.clip_type, "Option 1")
-    chosen_label = st.radio(
-        "Clip type",
-        options=type_options,
-        index=type_options.index(current_label),
+    # Output set radio
+    output_options = output_sets_for(ss.content_id)
+    if ss.clip_type not in output_options and output_options:
+        ss.clip_type = output_options[0]
+    chosen_type = st.radio(
+        "Output set",
+        options=output_options,
+        index=output_options.index(ss.clip_type) if ss.clip_type in output_options else 0,
         key="_sidebar_clip_type",
-        horizontal=True,
+        format_func=lambda clip_type: OUTPUT_SET_LABELS.get(clip_type, clip_type),
     )
-    chosen_type = "momenttype" if chosen_label == "Option 1" else "cliffhanger"
     if chosen_type != ss.clip_type:
         ss.clip_type = chosen_type
         ss.active_idx = 0
@@ -295,7 +314,7 @@ with st.sidebar:
                     label = cid
 
             btn_type = "primary" if is_active else "secondary"
-            if st.button(label, key=f"nav_{idx}", use_container_width=True, type=btn_type):
+            if st.button(label, key=f"nav_{ss.content_id}_{ss.clip_type}_{idx}", use_container_width=True, type=btn_type):
                 ss.active_idx = idx
                 st.rerun()
 
@@ -309,7 +328,11 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 if n_clips == 0:
     st.title("Comet Clips Review")
-    st.warning("No clips found for the selected Content ID / clip type.")
+    content_label = f"{content_name_for(ss.content_id)} ({ss.content_id})"
+    output_label = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
+    st.warning(f"No playable clips found for {content_label} · {output_label}.")
+    if current_manifest and current_manifest.get("source_status") != "OK":
+        st.info(f"Source status: {current_manifest['source_status']}")
     st.stop()
 
 # Clamp active_idx
@@ -324,7 +347,7 @@ score_algo: int = int(clip.get("score", 0))
 watch_prob: int = int(clip.get("watch_prob", 0))
 
 # Pre-fill session state score from existing rating (do once per clip load)
-score_key = f"score_{clip_id}"
+score_key = f"score_{ss.content_id}_{ss.clip_type}_{clip_id}"
 if score_key not in ss and clip_id in my_ratings:
     ss[score_key] = my_ratings[clip_id]
 
@@ -359,28 +382,61 @@ with tabs[0]:
 
         # Header row: clip id + type label
         safe_clip_id = html.escape(clip_id)
-        type_label = CLIP_TYPE_LABELS.get(ss.clip_type, ss.clip_type)
+        type_label = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
         safe_type_label = html.escape(type_label)
+        safe_content_name = html.escape(clip.get("content_name", content_name_for(ss.content_id)))
         st.markdown(
             f"<span style='font-size:1.1rem; font-weight:700;'>{safe_clip_id}</span> "
             f"<span style='color:#9ca3af; font-size:0.85rem;'>{safe_type_label}</span>",
             unsafe_allow_html=True,
         )
-
-        # Genre badge — neutral pill showing the genre_cms value (no tier color)
-        st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
-        genre = clip.get("genre_cms", "—")
-        safe_genre = html.escape(genre)
         st.markdown(
-            f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;'
-            f'padding:3px 10px;font-size:12px;font-weight:600;">{safe_genre}</span>',
+            f"<div style='color:#9ca3af;font-size:0.82rem;margin-top:3px;'>{safe_content_name} · {html.escape(ss.content_id)}</div>",
             unsafe_allow_html=True,
         )
+
+        if clip.get("source_status") and clip.get("source_status") != "OK":
+            st.warning(f"Source status: {clip['source_status']}")
+
+        # Genre badge — neutral pill showing the genre_cms value (no tier color)
+        st.markdown('<div class="section-label" style="margin-top:10px;">Metadata</div>', unsafe_allow_html=True)
+        genre = clip.get("genre_cms", "—")
+        safe_genre = html.escape(genre)
+        safe_prompt = html.escape(clip.get("prompt", ""))
+        safe_model = html.escape(clip.get("model", ""))
+        moment_type = clip.get("moment_type")
+        st.markdown(
+            f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;padding:3px 10px;font-size:12px;font-weight:600;">{safe_genre}</span> '
+            f'<span style="background:#111827;color:#d1d5db;border:1px solid #374151;border-radius:5px;padding:3px 10px;font-size:12px;">{safe_prompt}</span> '
+            f'<span style="background:#111827;color:#d1d5db;border:1px solid #374151;border-radius:5px;padding:3px 10px;font-size:12px;">{safe_model}</span>',
+            unsafe_allow_html=True,
+        )
+        if moment_type:
+            st.caption(f"Moment type: {moment_type}")
 
         # Description
         st.markdown('<div class="section-label" style="margin-top:10px;">Description</div>', unsafe_allow_html=True)
         safe_desc = html.escape(clip.get("description", ""))
         st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
+
+        if clip.get("selection_reasoning"):
+            st.markdown('<div class="section-label" style="margin-top:10px;">Selection reasoning</div>', unsafe_allow_html=True)
+            safe_reason = html.escape(_compact_meta(clip.get("selection_reasoning")))
+            st.markdown(f'<div class="desc-text">{safe_reason}</div>', unsafe_allow_html=True)
+
+        with st.expander("Clip details"):
+            if clip.get("clip_drive_link"):
+                st.link_button("Open clip in Drive", clip["clip_drive_link"], use_container_width=True)
+            detail_fields = [
+                ("Timestamps", "timestamps"),
+                ("Shot evidence", "shot_evidence"),
+                ("SRT boundary check", "srt_boundary_check"),
+                ("Score breakdown", "score_breakdown"),
+            ]
+            for label, key in detail_fields:
+                if clip.get(key):
+                    st.markdown(f"**{label}**")
+                    st.code(_compact_meta(clip.get(key), 1600))
 
         # Current rating badge (if already rated)
         existing_score: Optional[int] = my_ratings.get(clip_id)
@@ -405,7 +461,7 @@ with tabs[0]:
         bronze_cols = st.columns(3)
         for i, val in enumerate([1, 2, 3]):
             btn_t = "primary" if selected_score == val else "secondary"
-            if bronze_cols[i].button(str(val), key=f"btn_{clip_id}_{val}", type=btn_t, use_container_width=True):
+            if bronze_cols[i].button(str(val), key=f"btn_{ss.content_id}_{ss.clip_type}_{clip_id}_{val}", type=btn_t, use_container_width=True):
                 _score_btn(val, score_key)
                 st.rerun()
 
@@ -414,7 +470,7 @@ with tabs[0]:
         silver_cols = st.columns(3)
         for i, val in enumerate([4, 5, 6]):
             btn_t = "primary" if selected_score == val else "secondary"
-            if silver_cols[i].button(str(val), key=f"btn_{clip_id}_{val}", type=btn_t, use_container_width=True):
+            if silver_cols[i].button(str(val), key=f"btn_{ss.content_id}_{ss.clip_type}_{clip_id}_{val}", type=btn_t, use_container_width=True):
                 _score_btn(val, score_key)
                 st.rerun()
 
@@ -423,7 +479,7 @@ with tabs[0]:
         gold_cols = st.columns(4)
         for i, val in enumerate([7, 8, 9, 10]):
             btn_t = "primary" if selected_score == val else "secondary"
-            if gold_cols[i].button(str(val), key=f"btn_{clip_id}_{val}", type=btn_t, use_container_width=True):
+            if gold_cols[i].button(str(val), key=f"btn_{ss.content_id}_{ss.clip_type}_{clip_id}_{val}", type=btn_t, use_container_width=True):
                 _score_btn(val, score_key)
                 st.rerun()
 
@@ -432,7 +488,7 @@ with tabs[0]:
         submit_disabled = selected_score is None
         if st.button(
             "Submit rating",
-            key=f"submit_{clip_id}",
+            key=f"submit_{ss.content_id}_{ss.clip_type}_{clip_id}",
             type="primary",
             disabled=submit_disabled,
             use_container_width=True,
@@ -464,7 +520,7 @@ if admin and len(tabs) > 1:
 
             # Header
             safe_clip_id2 = html.escape(clip_id)
-            type_label2 = CLIP_TYPE_LABELS.get(ss.clip_type, ss.clip_type)
+            type_label2 = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
             safe_type_label2 = html.escape(type_label2)
             st.markdown(
                 f"<span style='font-size:1.1rem; font-weight:700;'>{safe_clip_id2}</span> "
