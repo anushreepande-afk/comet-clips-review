@@ -16,10 +16,10 @@ OUTPUT_SET_ORDER = [
 ]
 
 OUTPUT_SET_LABELS: Dict[str, str] = {
-    "cliffhanger_pro": "Cliffhanger · Pro",
-    "cliffhanger_flash": "Cliffhanger · Flash",
-    "momenttype_pro": "Moment Type · Pro",
-    "momenttype_flash": "Moment Type · Flash",
+    "cliffhanger_pro": "Alpha",
+    "cliffhanger_flash": "Beta",
+    "momenttype_pro": "Gamma",
+    "momenttype_flash": "Delta",
 }
 
 
