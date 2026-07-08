@@ -28,3 +28,12 @@ client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
 
 The same production redirect URI must also be added to the Google OAuth
 client's authorized redirect URIs.
+
+## Supabase unique clip rating storage
+
+Ratings are saved in Supabase when a reviewer clicks Submit rating. To store
+each rating against one unique clip record, run `supabase_unique_clips.sql` once
+in the Supabase SQL Editor.
+
+After this is applied, every submitted rating also upserts a row in `clips` and
+saves the rating against `ratings.unique_clip_key`.

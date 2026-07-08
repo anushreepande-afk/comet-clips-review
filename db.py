@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 
 @st.cache_resource
@@ -10,20 +10,62 @@ def _client() -> Client:
     return create_client(url, key)
 
 
+def build_unique_clip_key(content_id: str, clip_type: str, clip_id: str) -> str:
+    return f"{content_id}::{clip_type}::{clip_id}"
+
+
+def _build_clip_payload(clip: Dict) -> Dict:
+    unique_clip_key = build_unique_clip_key(
+        str(clip["content_id"]),
+        str(clip["clip_type"]),
+        str(clip["clip_id"]),
+    )
+    return {
+        "unique_clip_key": unique_clip_key,
+        "clip_id":         clip["clip_id"],
+        "content_id":      clip["content_id"],
+        "content_name":    clip.get("content_name", ""),
+        "clip_type":       clip["clip_type"],
+        "output_label":    clip.get("output_label", ""),
+        "clip_file_name":  clip.get("clip_file_name", ""),
+        "clip_drive_link": clip.get("clip_drive_link", ""),
+        "drive_file_id":   clip.get("drive_file_id", ""),
+        "genre_cms":       clip.get("genre_cms", ""),
+        "description":     clip.get("description", ""),
+    }
+
+
 def _build_upsert_payload(
     clip_id: str,
     content_id: str,
     clip_type: str,
     reviewer_email: str,
     score: int,
+    unique_clip_key: Optional[str] = None,
 ) -> Dict:
-    return {
+    payload = {
         "clip_id":        clip_id,
         "content_id":     content_id,
         "clip_type":      clip_type,
         "reviewer_email": reviewer_email,
         "score":          score,
     }
+    if unique_clip_key:
+        payload["unique_clip_key"] = unique_clip_key
+    return payload
+
+
+def _is_schema_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    schema_markers = [
+        "could not find",
+        "column",
+        "constraint",
+        "foreign key",
+        "relation",
+        "schema cache",
+    ]
+    return any(marker in message for marker in schema_markers)
 
 
 def upsert_rating(
@@ -32,12 +74,42 @@ def upsert_rating(
     clip_type: str,
     reviewer_email: str,
     score: int,
+    clip: Optional[Dict] = None,
 ) -> None:
-    payload = _build_upsert_payload(clip_id, content_id, clip_type, reviewer_email, score)
-    _client().table("ratings").upsert(
-        payload,
-        on_conflict="clip_id,content_id,clip_type,reviewer_email"
-    ).execute()
+    unique_clip_key = build_unique_clip_key(content_id, clip_type, clip_id)
+    rating_payload = _build_upsert_payload(
+        clip_id,
+        content_id,
+        clip_type,
+        reviewer_email,
+        score,
+        unique_clip_key=unique_clip_key,
+    )
+
+    try:
+        if clip:
+            _client().table("clips").upsert(
+                _build_clip_payload(clip),
+                on_conflict="unique_clip_key",
+            ).execute()
+        _client().table("ratings").upsert(
+            rating_payload,
+            on_conflict="unique_clip_key,reviewer_email",
+        ).execute()
+    except Exception as exc:
+        if not _is_schema_error(exc):
+            raise
+        legacy_payload = _build_upsert_payload(
+            clip_id,
+            content_id,
+            clip_type,
+            reviewer_email,
+            score,
+        )
+        _client().table("ratings").upsert(
+            legacy_payload,
+            on_conflict="clip_id,content_id,clip_type,reviewer_email",
+        ).execute()
 
 
 def fetch_ratings_for_tab(content_id: str, clip_type: str) -> List[Dict]:
