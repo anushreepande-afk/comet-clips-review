@@ -33,7 +33,26 @@ client's authorized redirect URIs.
 
 Ratings are saved in Supabase when a reviewer clicks Submit rating. To store
 each rating against one unique clip record, run `supabase_unique_clips.sql` once
-in the Supabase SQL Editor.
+in the Supabase SQL Editor. The hierarchy is:
 
-After this is applied, every submitted rating also upserts a row in `clips` and
-saves the rating against `ratings.unique_clip_key`.
+```text
+content_id x prompt x model -> clip_id -> reviewer rating
+```
+
+After this is applied, every submitted rating also upserts a row in `clip_sets`,
+upserts a row in `clips`, and saves the rating against
+`ratings.unique_clip_key`.
+
+## Excel rating exports
+
+Admins can download a fresh Excel workbook from the app's Admin view using
+`Download Excel with average ratings`.
+
+To update an existing visualization workbook instead, run:
+
+```bash
+python update_excel_with_ratings.py /path/to/input.xlsx /path/to/output.xlsx
+```
+
+The script adds or updates `Unique Clip Key`, `Avg User Rating`, and
+`Rating Count` columns in tabs that contain `content_id` and `clip_id`.

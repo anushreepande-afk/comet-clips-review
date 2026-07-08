@@ -2,6 +2,13 @@ import streamlit as st
 from supabase import create_client, Client
 from typing import Dict, List, Optional
 
+CLIP_TYPE_TO_PROMPT_MODEL: Dict[str, tuple[str, str]] = {
+    "cliffhanger_pro": ("cliffhanger", "pro"),
+    "cliffhanger_flash": ("cliffhanger", "flash"),
+    "momenttype_pro": ("momenttype", "pro"),
+    "momenttype_flash": ("momenttype", "flash"),
+}
+
 
 @st.cache_resource
 def _client() -> Client:
@@ -10,11 +17,50 @@ def _client() -> Client:
     return create_client(url, key)
 
 
+def _normalize_key_part(value: str) -> str:
+    return str(value).strip().lower().replace(" ", "")
+
+
+def prompt_model_from_clip_type(clip_type: str) -> tuple[str, str]:
+    if clip_type in CLIP_TYPE_TO_PROMPT_MODEL:
+        return CLIP_TYPE_TO_PROMPT_MODEL[clip_type]
+    parts = str(clip_type).rsplit("_", 1)
+    if len(parts) == 2:
+        return _normalize_key_part(parts[0]), _normalize_key_part(parts[1])
+    return _normalize_key_part(clip_type), ""
+
+
+def build_clip_set_key(content_id: str, prompt: str, model: str) -> str:
+    return f"{content_id}::{_normalize_key_part(prompt)}::{_normalize_key_part(model)}"
+
+
 def build_unique_clip_key(content_id: str, clip_type: str, clip_id: str) -> str:
-    return f"{content_id}::{clip_type}::{clip_id}"
+    prompt, model = prompt_model_from_clip_type(clip_type)
+    return f"{build_clip_set_key(content_id, prompt, model)}::{clip_id}"
+
+
+def _build_clip_set_payload(clip: Dict) -> Dict:
+    prompt, model = prompt_model_from_clip_type(str(clip["clip_type"]))
+    prompt = _normalize_key_part(clip.get("prompt") or prompt)
+    model = _normalize_key_part(clip.get("model") or model)
+    return {
+        "clip_set_key":   build_clip_set_key(str(clip["content_id"]), prompt, model),
+        "content_id":     clip["content_id"],
+        "content_name":   clip.get("content_name", ""),
+        "prompt":         prompt,
+        "model":          model,
+        "clip_type":      clip["clip_type"],
+        "output_label":   clip.get("output_label", ""),
+        "source_status":  clip.get("source_status", ""),
+        "json_source_file": clip.get("json_source_file", ""),
+        "json_source_link": clip.get("json_source_link", ""),
+        "clip_folder_name": clip.get("clip_folder_name", ""),
+        "clip_folder_link": clip.get("clip_folder_link", ""),
+    }
 
 
 def _build_clip_payload(clip: Dict) -> Dict:
+    clip_set_payload = _build_clip_set_payload(clip)
     unique_clip_key = build_unique_clip_key(
         str(clip["content_id"]),
         str(clip["clip_type"]),
@@ -22,9 +68,12 @@ def _build_clip_payload(clip: Dict) -> Dict:
     )
     return {
         "unique_clip_key": unique_clip_key,
+        "clip_set_key":    clip_set_payload["clip_set_key"],
         "clip_id":         clip["clip_id"],
         "content_id":      clip["content_id"],
         "content_name":    clip.get("content_name", ""),
+        "prompt":          clip_set_payload["prompt"],
+        "model":           clip_set_payload["model"],
         "clip_type":       clip["clip_type"],
         "output_label":    clip.get("output_label", ""),
         "clip_file_name":  clip.get("clip_file_name", ""),
@@ -42,6 +91,7 @@ def _build_upsert_payload(
     reviewer_email: str,
     score: int,
     unique_clip_key: Optional[str] = None,
+    clip_set_key: Optional[str] = None,
 ) -> Dict:
     payload = {
         "clip_id":        clip_id,
@@ -52,6 +102,8 @@ def _build_upsert_payload(
     }
     if unique_clip_key:
         payload["unique_clip_key"] = unique_clip_key
+    if clip_set_key:
+        payload["clip_set_key"] = clip_set_key
     return payload
 
 
@@ -77,6 +129,7 @@ def upsert_rating(
     clip: Optional[Dict] = None,
 ) -> None:
     unique_clip_key = build_unique_clip_key(content_id, clip_type, clip_id)
+    clip_set_key = unique_clip_key.rsplit("::", 1)[0]
     rating_payload = _build_upsert_payload(
         clip_id,
         content_id,
@@ -84,10 +137,15 @@ def upsert_rating(
         reviewer_email,
         score,
         unique_clip_key=unique_clip_key,
+        clip_set_key=clip_set_key,
     )
 
     try:
         if clip:
+            _client().table("clip_sets").upsert(
+                _build_clip_set_payload(clip),
+                on_conflict="clip_set_key",
+            ).execute()
             _client().table("clips").upsert(
                 _build_clip_payload(clip),
                 on_conflict="unique_clip_key",
@@ -136,6 +194,51 @@ def fetch_my_ratings(reviewer_email: str, content_id: str, clip_type: str) -> Di
         .execute()
     )
     return {row["clip_id"]: row["score"] for row in (resp.data or [])}
+
+
+def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
+    """Returns {unique_clip_key: {"avg": float, "count": int}} for all ratings."""
+    rows: List[Dict] = []
+    start = 0
+    page_size = 1000
+    select_with_unique_key = "unique_clip_key,clip_id,content_id,clip_type,score"
+
+    while True:
+        try:
+            resp = (
+                _client()
+                .table("ratings")
+                .select(select_with_unique_key)
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+        except Exception as exc:
+            if not _is_schema_error(exc):
+                raise
+            resp = (
+                _client()
+                .table("ratings")
+                .select("clip_id,content_id,clip_type,score")
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+        page = resp.data or []
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        start += page_size
+
+    score_groups: Dict[str, List[int]] = {}
+    for row in rows:
+        if row.get("score") is None:
+            continue
+        key = build_unique_clip_key(row["content_id"], row["clip_type"], row["clip_id"])
+        score_groups.setdefault(key, []).append(int(row["score"]))
+
+    return {
+        key: {"avg": round(sum(scores) / len(scores), 2), "count": len(scores)}
+        for key, scores in score_groups.items()
+    }
 
 
 def avg_score_for_clips(

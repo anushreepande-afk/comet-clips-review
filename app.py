@@ -7,6 +7,7 @@ from __future__ import annotations
 import html
 import streamlit as st
 from collections import defaultdict
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from auth import require_auth, is_admin
@@ -15,11 +16,13 @@ from clip_data import (
     all_content_ids,
     clips_for,
     content_name_for,
+    load_clips,
     manifest_for,
     output_sets_for,
     tier_for_score,
 )
-from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, avg_score_for_clips
+from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, fetch_rating_summary, avg_score_for_clips
+from excel_export import build_rating_export_workbook
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -500,6 +503,19 @@ with tabs[0]:
 if admin and len(tabs) > 1:
     with tabs[1]:
         ss.active_tab = "admin"
+
+        st.markdown('<div class="section-label">Excel export</div>', unsafe_allow_html=True)
+        rating_summary = fetch_rating_summary()
+        export_bytes = build_rating_export_workbook(load_clips(), rating_summary)
+        st.download_button(
+            "Download Excel with average ratings",
+            data=export_bytes,
+            file_name=f"comet_clip_ratings_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+        st.divider()
 
         col_vid2, col_panel2 = st.columns([3, 2])
 
