@@ -121,6 +121,29 @@ st.markdown(
         line-height: 1.6;
         margin-top: 4px;
     }
+    .content-context {
+        color: #d1d5db;
+        font-size: 1.08rem;
+        font-weight: 700;
+        margin-top: 6px;
+    }
+    .rating-heading {
+        color: #f3f4f6;
+        font-size: 1rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-top: 18px;
+        margin-bottom: 8px;
+    }
+    .rating-band {
+        font-size: 0.95rem;
+        font-weight: 800;
+    }
+    div[data-testid="stButton"] button p {
+        font-size: 1.05rem;
+        font-weight: 700;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -213,12 +236,6 @@ def _render_reviewer_row(row: Dict) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
-
-def _compact_meta(value: object, max_chars: int = 900) -> str:
-    text = str(value or "").strip()
-    if len(text) > max_chars:
-        return text[: max_chars - 1].rstrip() + "…"
-    return text
 
 # ---------------------------------------------------------------------------
 # Fetch data once (before sidebar and main area reuse)
@@ -386,12 +403,12 @@ with tabs[0]:
         safe_type_label = html.escape(type_label)
         safe_content_name = html.escape(clip.get("content_name", content_name_for(ss.content_id)))
         st.markdown(
-            f"<span style='font-size:1.1rem; font-weight:700;'>{safe_clip_id}</span> "
-            f"<span style='color:#9ca3af; font-size:0.85rem;'>{safe_type_label}</span>",
+            f"<span style='font-size:1.25rem; font-weight:800;'>{safe_clip_id}</span> "
+            f"<span style='color:#9ca3af; font-size:1rem;'>{safe_type_label}</span>",
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"<div style='color:#9ca3af;font-size:0.82rem;margin-top:3px;'>{safe_content_name} · {html.escape(ss.content_id)}</div>",
+            f"<div class='content-context'>{safe_content_name} · {html.escape(ss.content_id)}</div>",
             unsafe_allow_html=True,
         )
 
@@ -399,44 +416,18 @@ with tabs[0]:
             st.warning(f"Source status: {clip['source_status']}")
 
         # Genre badge — neutral pill showing the genre_cms value (no tier color)
-        st.markdown('<div class="section-label" style="margin-top:10px;">Metadata</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
         genre = clip.get("genre_cms", "—")
         safe_genre = html.escape(genre)
-        safe_prompt = html.escape(clip.get("prompt", ""))
-        safe_model = html.escape(clip.get("model", ""))
-        moment_type = clip.get("moment_type")
         st.markdown(
-            f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;padding:3px 10px;font-size:12px;font-weight:600;">{safe_genre}</span> '
-            f'<span style="background:#111827;color:#d1d5db;border:1px solid #374151;border-radius:5px;padding:3px 10px;font-size:12px;">{safe_prompt}</span> '
-            f'<span style="background:#111827;color:#d1d5db;border:1px solid #374151;border-radius:5px;padding:3px 10px;font-size:12px;">{safe_model}</span>',
+            f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;padding:4px 12px;font-size:14px;font-weight:700;">{safe_genre}</span>',
             unsafe_allow_html=True,
         )
-        if moment_type:
-            st.caption(f"Moment type: {moment_type}")
 
         # Description
         st.markdown('<div class="section-label" style="margin-top:10px;">Description</div>', unsafe_allow_html=True)
         safe_desc = html.escape(clip.get("description", ""))
         st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
-
-        if clip.get("selection_reasoning"):
-            st.markdown('<div class="section-label" style="margin-top:10px;">Selection reasoning</div>', unsafe_allow_html=True)
-            safe_reason = html.escape(_compact_meta(clip.get("selection_reasoning")))
-            st.markdown(f'<div class="desc-text">{safe_reason}</div>', unsafe_allow_html=True)
-
-        with st.expander("Clip details"):
-            if clip.get("clip_drive_link"):
-                st.link_button("Open clip in Drive", clip["clip_drive_link"], use_container_width=True)
-            detail_fields = [
-                ("Timestamps", "timestamps"),
-                ("Shot evidence", "shot_evidence"),
-                ("SRT boundary check", "srt_boundary_check"),
-                ("Score breakdown", "score_breakdown"),
-            ]
-            for label, key in detail_fields:
-                if clip.get(key):
-                    st.markdown(f"**{label}**")
-                    st.code(_compact_meta(clip.get(key), 1600))
 
         # Current rating badge (if already rated)
         existing_score: Optional[int] = my_ratings.get(clip_id)
@@ -451,13 +442,13 @@ with tabs[0]:
                 unsafe_allow_html=True,
             )
 
-        st.markdown('<div class="section-label" style="margin-top:14px;">Rate this clip</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rating-heading">Rate this clip</div>', unsafe_allow_html=True)
 
         # Rating buttons — 3 groups
         selected_score: Optional[int] = ss.get(score_key)
 
         # Bronze 1–3
-        st.markdown("<span style='color:#fed7aa; font-size:0.75rem; font-weight:600;'>Bronze · 1–3</span>", unsafe_allow_html=True)
+        st.markdown("<span class='rating-band' style='color:#fed7aa;'>Bronze · 1–3</span>", unsafe_allow_html=True)
         bronze_cols = st.columns(3)
         for i, val in enumerate([1, 2, 3]):
             btn_t = "primary" if selected_score == val else "secondary"
@@ -466,7 +457,7 @@ with tabs[0]:
                 st.rerun()
 
         # Silver 4–6
-        st.markdown("<span style='color:#bfdbfe; font-size:0.75rem; font-weight:600;'>Silver · 4–6</span>", unsafe_allow_html=True)
+        st.markdown("<span class='rating-band' style='color:#bfdbfe;'>Silver · 4–6</span>", unsafe_allow_html=True)
         silver_cols = st.columns(3)
         for i, val in enumerate([4, 5, 6]):
             btn_t = "primary" if selected_score == val else "secondary"
@@ -475,7 +466,7 @@ with tabs[0]:
                 st.rerun()
 
         # Gold 7–10
-        st.markdown("<span style='color:#fef3c7; font-size:0.75rem; font-weight:600;'>Gold · 7–10</span>", unsafe_allow_html=True)
+        st.markdown("<span class='rating-band' style='color:#fef3c7;'>Gold · 7–10</span>", unsafe_allow_html=True)
         gold_cols = st.columns(4)
         for i, val in enumerate([7, 8, 9, 10]):
             btn_t = "primary" if selected_score == val else "secondary"
