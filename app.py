@@ -161,6 +161,9 @@ for k, v in _defaults.items():
         st.session_state[k] = v
 
 ss = st.session_state
+output_options = output_sets_for(ss.content_id)
+if ss.clip_type not in output_options and output_options:
+    ss.clip_type = output_options[0]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -219,9 +222,27 @@ def _render_reviewer_row(row: Dict) -> None:
         unsafe_allow_html=True,
     )
 
-def _go_to_clip(delta: int) -> None:
-    ss.active_idx = (ss.active_idx + delta) % n_clips
-    st.rerun()
+def _move_clip(delta: int, rerun: bool = True) -> None:
+    if n_clips == 0:
+        return
+
+    if delta > 0 and ss.active_idx < n_clips - 1:
+        ss.active_idx += 1
+    elif delta < 0 and ss.active_idx > 0:
+        ss.active_idx -= 1
+    else:
+        sets = output_sets_for(ss.content_id)
+        if sets and ss.clip_type in sets:
+            current_set_idx = sets.index(ss.clip_type)
+            next_set_idx = (current_set_idx + (1 if delta > 0 else -1)) % len(sets)
+            ss.clip_type = sets[next_set_idx]
+            target_clips = clips_for(ss.content_id, ss.clip_type)
+            ss.active_idx = 0 if delta > 0 else max(len(target_clips) - 1, 0)
+        else:
+            ss.active_idx = 0
+
+    if rerun:
+        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Fetch data once (before sidebar and main area reuse)
@@ -270,22 +291,6 @@ with st.sidebar:
         ss.active_idx = 0
         available_sets = output_sets_for(chosen_cid)
         ss.clip_type = available_sets[0] if available_sets else "cliffhanger_pro"
-        st.rerun()
-
-    # Output set radio
-    output_options = output_sets_for(ss.content_id)
-    if ss.clip_type not in output_options and output_options:
-        ss.clip_type = output_options[0]
-    chosen_type = st.radio(
-        "Output set",
-        options=output_options,
-        index=output_options.index(ss.clip_type) if ss.clip_type in output_options else 0,
-        key="_sidebar_clip_type",
-        format_func=lambda clip_type: OUTPUT_SET_LABELS.get(clip_type, clip_type),
-    )
-    if chosen_type != ss.clip_type:
-        ss.clip_type = chosen_type
-        ss.active_idx = 0
         st.rerun()
 
     st.divider()
@@ -366,22 +371,29 @@ with tabs[0]:
         )
         ss.flash = None
 
-    col_prev, col_vid, col_panel, col_next = st.columns([0.35, 3, 2, 0.35])
+    if output_options:
+        ribbon_cols = st.columns(len(output_options))
+        for idx, option in enumerate(output_options):
+            label = OUTPUT_SET_LABELS.get(option, option)
+            btn_type = "primary" if option == ss.clip_type else "secondary"
+            if ribbon_cols[idx].button(label, key=f"ribbon_{ss.content_id}_{option}", type=btn_type, use_container_width=True):
+                ss.clip_type = option
+                ss.active_idx = 0
+                st.rerun()
 
-    with col_prev:
-        st.write("")
-        st.write("")
-        if st.button("‹", key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
-            _go_to_clip(-1)
+    col_vid, col_panel = st.columns([3, 2])
 
     with col_vid:
         st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
-
-    with col_next:
-        st.write("")
-        st.write("")
-        if st.button("›", key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
-            _go_to_clip(1)
+        nav_left, nav_counter, nav_right = st.columns([1, 1.2, 1])
+        if nav_left.button("‹ Previous", key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
+            _move_clip(-1)
+        nav_counter.markdown(
+            f"<div style='text-align:center;color:#9ca3af;font-weight:700;padding-top:0.45rem;'>{ss.active_idx + 1} / {n_clips}</div>",
+            unsafe_allow_html=True,
+        )
+        if nav_right.button("Next ›", key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
+            _move_clip(1)
 
     with col_panel:
         st.markdown('<div class="clip-card">', unsafe_allow_html=True)
@@ -457,7 +469,7 @@ with tabs[0]:
                 my_ratings[clip_id] = score_to_save
                 ss[decision_key] = decision
                 ss.flash = f"Saved — {decision}"
-                ss.active_idx = next_unrated_idx(clips, my_ratings, ss.active_idx)
+                _move_clip(1, rerun=False)
                 st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)  # close clip-card
