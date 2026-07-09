@@ -318,16 +318,12 @@ with st.sidebar:
             cid = clip["clip_id"]
             is_active = idx == ss.active_idx
 
-            # Build label depending on active tab
+            # Keep clip navigation free of submitted or average rating scores.
             if ss.active_tab == "admin":
-                avg = _avg_map.get(cid)
-                if avg is not None:
-                    label = f"{'▶ ' if is_active else ''}{cid}  ·  {avg}"
-                else:
-                    label = f"{'▶ ' if is_active else ''}{cid}"
+                label = f"{'▶ ' if is_active else ''}{cid}"
             else:
                 if cid in my_ratings:
-                    label = f"✓ {cid}  ·  {my_ratings[cid]}"
+                    label = f"✓ {cid}"
                 elif is_active:
                     label = f"▶ {cid}"
                 else:
