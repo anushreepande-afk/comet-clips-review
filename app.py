@@ -270,7 +270,7 @@ def _move_clip(delta: int, rerun: bool = True) -> None:
             next_target_idx = current_target_idx + (1 if delta > 0 else -1)
             if 0 <= next_target_idx < len(targets):
                 ss.content_id, ss.clip_type = targets[next_target_idx]
-                ss["_sidebar_content_id"] = ss.content_id
+                ss["_pending_sidebar_content_id"] = ss.content_id
                 target_clips = clips_for(ss.content_id, ss.clip_type)
                 ss.active_idx = 0 if delta > 0 else max(len(target_clips) - 1, 0)
             else:
@@ -319,6 +319,11 @@ with st.sidebar:
     st.divider()
 
     # Content ID selector
+    pending_sidebar_content_id = ss.get("_pending_sidebar_content_id")
+    if pending_sidebar_content_id:
+        ss["_sidebar_content_id"] = pending_sidebar_content_id
+        del ss["_pending_sidebar_content_id"]
+
     content_id_idx = content_ids.index(ss.content_id) if ss.content_id in content_ids else 0
     st.markdown('<div class="content-select-label">Select content id to review</div>', unsafe_allow_html=True)
     chosen_cid = st.selectbox(
@@ -361,7 +366,7 @@ with st.sidebar:
                     label = cid
 
             is_reviewed = cid in my_ratings and ss.active_tab != "admin"
-            btn_type = "primary" if is_active or is_reviewed else "secondary"
+            btn_type = "primary" if is_reviewed else "secondary"
             if st.button(
                 label,
                 key=f"nav_{ss.content_id}_{ss.clip_type}_{idx}",
