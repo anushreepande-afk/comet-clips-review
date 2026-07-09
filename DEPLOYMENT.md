@@ -48,8 +48,10 @@ upserts a row in `clips`, and saves the rating against
 
 ## Excel rating exports
 
-Admins can download a fresh Excel workbook from the app's Admin view using
-`Download Excel with ratings`.
+Admins can download fresh Excel workbooks from the app's Admin view:
+
+- `Download average ratings`
+- `Download individual ratings`
 
 To update an existing visualization workbook instead, run:
 

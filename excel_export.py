@@ -243,6 +243,16 @@ def build_rating_export_workbook(
     return buffer.getvalue()
 
 
+def build_individual_ratings_workbook(clips: Iterable[Dict], ratings: Iterable[Dict]) -> bytes:
+    wb = Workbook()
+    wb.remove(wb.active)
+    _append_individual_ratings_sheet(wb, _clip_meta_by_key(list(clips)), ratings)
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
 def _normalize_header(value: object) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
 

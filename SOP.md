@@ -105,8 +105,8 @@ There are two supported methods.
 1. Open the Streamlit app.
 2. Sign in as an admin.
 3. Open `Admin view`.
-4. Click `Download Excel with ratings`.
-5. The downloaded workbook includes:
+4. Click `Download average ratings` for the clip-level summary workbook.
+5. That workbook includes:
    - `content_id`
    - `content_name`
    - `output_set`
@@ -117,10 +117,19 @@ There are two supported methods.
    - `description`
    - `Avg User Rating`
    - `Rating Count`
-   - an `Individual Ratings` tab with `reviewer_email`, `score`, and
-     `submitted_at` for every submitted rating
+6. Click `Download individual ratings` for the reviewer-level workbook.
+7. That workbook includes an `Individual Ratings` sheet with:
+   - `unique_clip_key`
+   - `content_id`
+   - `content_name`
+   - `output_set`
+   - `clip_id`
+   - `clip_drive_link`
+   - `reviewer_email`
+   - `score`
+   - `submitted_at`
 
-Use this when you want a fresh workbook generated from the app data.
+Use these when you want fresh workbooks generated from the app data.
 
 ### Method 2: Update The Original Workbook
 

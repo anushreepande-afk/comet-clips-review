@@ -22,7 +22,7 @@ from clip_data import (
     tier_for_score,
 )
 from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, fetch_rating_summary, fetch_all_ratings, avg_score_for_clips
-from excel_export import build_rating_export_workbook
+from excel_export import build_individual_ratings_workbook, build_rating_export_workbook
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -514,11 +514,22 @@ if admin and len(tabs) > 1:
         st.markdown('<div class="section-label">Excel export</div>', unsafe_allow_html=True)
         rating_summary = fetch_rating_summary()
         individual_ratings = fetch_all_ratings()
-        export_bytes = build_rating_export_workbook(load_clips(), rating_summary, individual_ratings)
-        st.download_button(
-            "Download Excel with ratings",
-            data=export_bytes,
-            file_name=f"comet_clip_ratings_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        all_clips = load_clips()
+        export_stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        avg_export_bytes = build_rating_export_workbook(all_clips, rating_summary)
+        individual_export_bytes = build_individual_ratings_workbook(all_clips, individual_ratings)
+        avg_col, individual_col = st.columns(2)
+        avg_col.download_button(
+            "Download average ratings",
+            data=avg_export_bytes,
+            file_name=f"comet_clip_average_ratings_{export_stamp}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        individual_col.download_button(
+            "Download individual ratings",
+            data=individual_export_bytes,
+            file_name=f"comet_clip_individual_ratings_{export_stamp}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
