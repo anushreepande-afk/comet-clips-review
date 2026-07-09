@@ -114,6 +114,25 @@ st.markdown(
         font-weight: 700;
         margin-top: 6px;
     }
+    .content-select-label {
+        color: #f3f4f6;
+        font-size: 1.12rem;
+        font-weight: 800;
+        line-height: 1.25;
+        margin-bottom: 5px;
+    }
+    [data-testid="stExpander"] details summary p {
+        background: linear-gradient(90deg, #a855f7, #ec4899);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-weight: 900;
+    }
+    [data-testid="stExpander"] details summary {
+        border: 1px solid rgba(168, 85, 247, 0.4);
+        border-radius: 8px;
+        background: linear-gradient(90deg, rgba(168, 85, 247, 0.12), rgba(236, 72, 153, 0.08));
+    }
     .rating-heading {
         color: #f3f4f6;
         font-size: 0.86rem;
@@ -288,6 +307,7 @@ with st.sidebar:
 
     # Content ID selector
     content_id_idx = content_ids.index(ss.content_id) if ss.content_id in content_ids else 0
+    st.markdown('<div class="content-select-label">Select content id to review</div>', unsafe_allow_html=True)
     chosen_cid = st.selectbox(
         "Select content id to review",
         options=content_ids,
@@ -295,6 +315,7 @@ with st.sidebar:
         format_func=lambda cid: f"{content_name_for(cid)} ({cid})",
         key="_sidebar_content_id",
         help="Choose the content title whose clips you want to review.",
+        label_visibility="collapsed",
     )
     if chosen_cid != ss.content_id:
         ss.content_id = chosen_cid
@@ -326,7 +347,8 @@ with st.sidebar:
                 else:
                     label = cid
 
-            btn_type = "primary" if is_active else "secondary"
+            is_reviewed = cid in my_ratings and ss.active_tab != "admin"
+            btn_type = "primary" if is_active or is_reviewed else "secondary"
             if st.button(
                 label,
                 key=f"nav_{ss.content_id}_{ss.clip_type}_{idx}",
@@ -420,8 +442,6 @@ with col_vid:
         _move_clip(1)
 
 with col_panel:
-    st.markdown('<div class="clip-card">', unsafe_allow_html=True)
-
     # Header row: clip id + type label
     safe_clip_id = html.escape(clip_id)
     type_label = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
@@ -501,8 +521,6 @@ with col_panel:
             _move_clip(1, rerun=False)
             st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)  # close clip-card
-
 # ── ADMIN SECTION ───────────────────────────────────────────────────────────
 if admin:
     with st.expander("Admin view (restricted)", expanded=False):
@@ -541,8 +559,6 @@ if admin:
             st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
 
         with col_panel2:
-            st.markdown('<div class="clip-card">', unsafe_allow_html=True)
-
             # Header
             safe_clip_id2 = html.escape(clip_id)
             type_label2 = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
@@ -592,5 +608,3 @@ if admin:
                     with st.expander(f"More ({len(overflow)})"):
                         for row in overflow:
                             _render_reviewer_row(row)
-
-            st.markdown("</div>", unsafe_allow_html=True)  # close clip-card
