@@ -367,150 +367,142 @@ if decision_key not in ss and clip_id in my_ratings:
     ss[decision_key] = decision_from_score(my_ratings[clip_id])
 
 # ---------------------------------------------------------------------------
-# Tabs
+# Reviewer view
 # ---------------------------------------------------------------------------
-tab_labels = ["Reviewer view"]
+ss.active_tab = "reviewer"
+
+# Flash message
+if ss.flash:
+    st.markdown(
+        f'<div class="flash-success">{ss.flash}</div>',
+        unsafe_allow_html=True,
+    )
+    ss.flash = None
+
+if output_options:
+    ribbon_cols = st.columns(len(output_options))
+    for idx, option in enumerate(output_options):
+        label = OUTPUT_SET_LABELS.get(option, option)
+        btn_type = "primary" if option == ss.clip_type else "secondary"
+        if ribbon_cols[idx].button(
+            label,
+            key=f"ribbon_{ss.content_id}_{option}",
+            type=btn_type,
+            use_container_width=True,
+            help=f"Switch to {label} for this content.",
+        ):
+            ss.clip_type = option
+            ss.active_idx = 0
+            st.rerun()
+
+col_vid, col_panel = st.columns([4.4, 1.35])
+
+with col_vid:
+    st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
+    nav_left, nav_counter, nav_right = st.columns([1, 1.2, 1])
+    if nav_left.button(
+        "‹ Previous",
+        key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}",
+        use_container_width=True,
+        help="Go to the previous clip. At the start of a version, this moves to the previous version.",
+    ):
+        _move_clip(-1)
+    nav_counter.markdown(
+        f"<div style='text-align:center;color:#9ca3af;font-weight:700;padding-top:0.45rem;'>{ss.active_idx + 1} / {n_clips}</div>",
+        unsafe_allow_html=True,
+    )
+    if nav_right.button(
+        "Next ›",
+        key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}",
+        use_container_width=True,
+        help="Go to the next clip. At the end of a version, this moves to the next version.",
+    ):
+        _move_clip(1)
+
+with col_panel:
+    st.markdown('<div class="clip-card">', unsafe_allow_html=True)
+
+    # Header row: clip id + type label
+    safe_clip_id = html.escape(clip_id)
+    type_label = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
+    safe_type_label = html.escape(type_label)
+    safe_content_name = html.escape(clip.get("content_name", content_name_for(ss.content_id)))
+    st.markdown(
+        f"<span style='font-size:1.25rem; font-weight:800;'>{safe_clip_id}</span> "
+        f"<span style='color:#9ca3af; font-size:1rem;'>{safe_type_label}</span>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div class='content-context'>{safe_content_name} · {html.escape(ss.content_id)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    if clip.get("source_status") and clip.get("source_status") != "OK":
+        st.warning(f"Source status: {clip['source_status']}")
+
+    # Genre badge: use only the Genre CMS value from the source JSON.
+    st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
+    genre = clip.get("genre_cms") or "—"
+    safe_genre = html.escape(str(genre))
+    st.markdown(
+        f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;padding:4px 12px;font-size:14px;font-weight:700;">{safe_genre}</span>',
+        unsafe_allow_html=True,
+    )
+
+    # Description
+    st.markdown('<div class="section-label" style="margin-top:10px;">Description</div>', unsafe_allow_html=True)
+    safe_desc = html.escape(clip.get("description", ""))
+    st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
+
+    # Current decision badge (if already reviewed)
+    existing_score: Optional[int] = my_ratings.get(clip_id)
+    if existing_score is not None:
+        current_decision = decision_from_score(existing_score)
+        current_decision_html = badge_html(current_decision)
+    else:
+        current_decision_html = '<span style="color:#6b7280;font-size:0.82rem;font-weight:700;">Not reviewed</span>'
+
+    st.markdown(
+        f'<div class="decision-row">'
+        f'<div class="section-label">Decision</div>'
+        f'{current_decision_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    decision_cols = st.columns(2, gap="small")
+    actions = [("Accept", ACCEPT_SCORE), ("Reject", REJECT_SCORE)]
+    for col, (decision, score_to_save) in zip(decision_cols, actions):
+        if col.button(
+            decision,
+            key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_{decision.lower()}",
+            type="primary" if decision == "Accept" else "secondary",
+            use_container_width=True,
+            help=f"Save this clip as {decision} and move to the next clip.",
+        ):
+            try:
+                upsert_rating(
+                    clip_id,
+                    ss.content_id,
+                    ss.clip_type,
+                    email,
+                    score_to_save,
+                    clip=clip,
+                )
+            except Exception:
+                st.error("Could not save this decision. Please check Supabase configuration and rerun the setup SQL if needed.")
+                st.stop()
+            my_ratings[clip_id] = score_to_save
+            ss[decision_key] = decision
+            ss.flash = f"Saved — {decision}"
+            _move_clip(1, rerun=False)
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)  # close clip-card
+
+# ── ADMIN SECTION ───────────────────────────────────────────────────────────
 if admin:
-    tab_labels.append("Admin view (restricted)")
-
-tabs = st.tabs(tab_labels)
-
-# ── REVIEWER TAB ────────────────────────────────────────────────────────────
-with tabs[0]:
-    ss.active_tab = "reviewer"
-
-    # Flash message
-    if ss.flash:
-        st.markdown(
-            f'<div class="flash-success">{ss.flash}</div>',
-            unsafe_allow_html=True,
-        )
-        ss.flash = None
-
-    if output_options:
-        ribbon_cols = st.columns(len(output_options))
-        for idx, option in enumerate(output_options):
-            label = OUTPUT_SET_LABELS.get(option, option)
-            btn_type = "primary" if option == ss.clip_type else "secondary"
-            if ribbon_cols[idx].button(
-                label,
-                key=f"ribbon_{ss.content_id}_{option}",
-                type=btn_type,
-                use_container_width=True,
-                help=f"Switch to {label} for this content.",
-            ):
-                ss.clip_type = option
-                ss.active_idx = 0
-                st.rerun()
-
-    col_vid, col_panel = st.columns([4.4, 1.35])
-
-    with col_vid:
-        st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
-        nav_left, nav_counter, nav_right = st.columns([1, 1.2, 1])
-        if nav_left.button(
-            "‹ Previous",
-            key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}",
-            use_container_width=True,
-            help="Go to the previous clip. At the start of a version, this moves to the previous version.",
-        ):
-            _move_clip(-1)
-        nav_counter.markdown(
-            f"<div style='text-align:center;color:#9ca3af;font-weight:700;padding-top:0.45rem;'>{ss.active_idx + 1} / {n_clips}</div>",
-            unsafe_allow_html=True,
-        )
-        if nav_right.button(
-            "Next ›",
-            key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}",
-            use_container_width=True,
-            help="Go to the next clip. At the end of a version, this moves to the next version.",
-        ):
-            _move_clip(1)
-
-    with col_panel:
-        st.markdown('<div class="clip-card">', unsafe_allow_html=True)
-
-        # Header row: clip id + type label
-        safe_clip_id = html.escape(clip_id)
-        type_label = OUTPUT_SET_LABELS.get(ss.clip_type, ss.clip_type)
-        safe_type_label = html.escape(type_label)
-        safe_content_name = html.escape(clip.get("content_name", content_name_for(ss.content_id)))
-        st.markdown(
-            f"<span style='font-size:1.25rem; font-weight:800;'>{safe_clip_id}</span> "
-            f"<span style='color:#9ca3af; font-size:1rem;'>{safe_type_label}</span>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"<div class='content-context'>{safe_content_name} · {html.escape(ss.content_id)}</div>",
-            unsafe_allow_html=True,
-        )
-
-        if clip.get("source_status") and clip.get("source_status") != "OK":
-            st.warning(f"Source status: {clip['source_status']}")
-
-        # Genre badge: use only the Genre CMS value from the source JSON.
-        st.markdown('<div class="section-label" style="margin-top:10px;">Genre CMS</div>', unsafe_allow_html=True)
-        genre = clip.get("genre_cms") or "—"
-        safe_genre = html.escape(str(genre))
-        st.markdown(
-            f'<span style="background:#1f2937;color:#e5e7eb;border-radius:5px;padding:4px 12px;font-size:14px;font-weight:700;">{safe_genre}</span>',
-            unsafe_allow_html=True,
-        )
-
-        # Description
-        st.markdown('<div class="section-label" style="margin-top:10px;">Description</div>', unsafe_allow_html=True)
-        safe_desc = html.escape(clip.get("description", ""))
-        st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
-
-        # Current decision badge (if already reviewed)
-        existing_score: Optional[int] = my_ratings.get(clip_id)
-        if existing_score is not None:
-            current_decision = decision_from_score(existing_score)
-            current_decision_html = badge_html(current_decision)
-        else:
-            current_decision_html = '<span style="color:#6b7280;font-size:0.82rem;font-weight:700;">Not reviewed</span>'
-
-        st.markdown(
-            f'<div class="decision-row">'
-            f'<div class="section-label">Decision</div>'
-            f'{current_decision_html}'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        decision_cols = st.columns(2, gap="small")
-        actions = [("Accept", ACCEPT_SCORE), ("Reject", REJECT_SCORE)]
-        for col, (decision, score_to_save) in zip(decision_cols, actions):
-            if col.button(
-                decision,
-                key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_{decision.lower()}",
-                type="primary" if decision == "Accept" else "secondary",
-                use_container_width=True,
-                help=f"Save this clip as {decision} and move to the next clip.",
-            ):
-                try:
-                    upsert_rating(
-                        clip_id,
-                        ss.content_id,
-                        ss.clip_type,
-                        email,
-                        score_to_save,
-                        clip=clip,
-                    )
-                except Exception:
-                    st.error("Could not save this decision. Please check Supabase configuration and rerun the setup SQL if needed.")
-                    st.stop()
-                my_ratings[clip_id] = score_to_save
-                ss[decision_key] = decision
-                ss.flash = f"Saved — {decision}"
-                _move_clip(1, rerun=False)
-                st.rerun()
-
-        st.markdown("</div>", unsafe_allow_html=True)  # close clip-card
-
-# ── ADMIN TAB ───────────────────────────────────────────────────────────────
-if admin and len(tabs) > 1:
-    with tabs[1]:
+    with st.expander("Admin view (restricted)", expanded=False):
         ss.active_tab = "admin"
 
         st.markdown('<div class="section-label">Excel export</div>', unsafe_allow_html=True)
