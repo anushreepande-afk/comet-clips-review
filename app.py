@@ -242,6 +242,22 @@ def drive_embed_html(file_id: str) -> str:
         '</div>'
     )
 
+def clip_drive_link(clip: Dict) -> str:
+    if clip.get("clip_drive_link"):
+        return str(clip["clip_drive_link"])
+    file_id = clip.get("drive_file_id", "")
+    return f"https://drive.google.com/file/d/{file_id}/view" if file_id else ""
+
+def render_drive_link(clip: Dict) -> None:
+    url = clip_drive_link(clip)
+    if url:
+        st.link_button(
+            "Open clip in Google Drive",
+            url,
+            use_container_width=True,
+            help="Open the clip directly if the embedded Google player asks for cookies or account access.",
+        )
+
 def next_unrated_idx(
     clips: List[Dict],
     my_ratings: Dict[str, int],
@@ -489,6 +505,7 @@ col_vid, col_panel = st.columns([4.4, 1.35])
 
 with col_vid:
     st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
+    render_drive_link(clip)
     nav_left, nav_counter, nav_right = st.columns([1, 1.2, 1])
     if nav_left.button(
         "‹ Previous",
@@ -628,6 +645,7 @@ if admin:
 
         with col_vid2:
             st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
+            render_drive_link(clip)
 
         with col_panel2:
             # Header
