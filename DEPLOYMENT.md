@@ -49,7 +49,7 @@ upserts a row in `clips`, and saves the rating against
 ## Excel rating exports
 
 Admins can download a fresh Excel workbook from the app's Admin view using
-`Download Excel with average ratings`.
+`Download Excel with ratings`.
 
 To update an existing visualization workbook instead, run:
 
@@ -58,4 +58,5 @@ python update_excel_with_ratings.py /path/to/input.xlsx /path/to/output.xlsx
 ```
 
 The script adds or updates `Unique Clip Key`, `Avg User Rating`, and
-`Rating Count` columns in tabs that contain `content_id` and `clip_id`.
+`Rating Count` columns in tabs that contain `content_id` and `clip_id`. It also
+adds an `Individual Ratings` tab with one row per submitted reviewer rating.

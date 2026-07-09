@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Update an existing clip review workbook with Supabase average ratings."""
+"""Update an existing clip review workbook with Supabase rating data."""
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from db import fetch_rating_summary
+from db import fetch_all_ratings, fetch_rating_summary
 from excel_export import update_workbook_with_rating_summary
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Append/update Avg User Rating and Rating Count columns in an existing Excel workbook."
+        description="Append/update average ratings and add an Individual Ratings tab to an existing workbook."
     )
     parser.add_argument("input_xlsx", help="Path to the existing visualization workbook.")
     parser.add_argument(
@@ -32,8 +32,15 @@ def main() -> None:
     )
 
     rating_summary = fetch_rating_summary()
-    updated_rows = update_workbook_with_rating_summary(input_path, output_path, rating_summary)
+    individual_ratings = fetch_all_ratings()
+    updated_rows = update_workbook_with_rating_summary(
+        input_path,
+        output_path,
+        rating_summary,
+        individual_ratings,
+    )
     print(f"Updated {updated_rows} clip rows")
+    print(f"Included {len(individual_ratings)} individual rating rows")
     print(f"Saved: {output_path}")
 
 

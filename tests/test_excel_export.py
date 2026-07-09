@@ -19,10 +19,19 @@ def test_build_rating_export_workbook():
         "description": "A key moment.",
     }]
     summary = {"1260029222::momenttype::pro::clip1": {"avg": 8.5, "count": 2}}
+    ratings = [{
+        "unique_clip_key": "1260029222::momenttype::pro::clip1",
+        "content_id": "1260029222",
+        "clip_type": "momenttype_pro",
+        "clip_id": "clip1",
+        "reviewer_email": "reviewer@jiostar.com",
+        "score": 8,
+        "submitted_at": "2026-07-09T00:00:00Z",
+    }]
 
-    data = build_rating_export_workbook(clips, summary)
+    data = build_rating_export_workbook(clips, summary, ratings)
     wb = load_workbook(BytesIO(data))
-    ws = wb.active
+    ws = wb["Example Movie Gamma"]
 
     headers = [cell.value for cell in ws[1]]
     values = [cell.value for cell in ws[2]]
@@ -30,6 +39,14 @@ def test_build_rating_export_workbook():
     assert values[headers.index("unique_clip_key")] == "1260029222::momenttype::pro::clip1"
     assert values[headers.index("Avg User Rating")] == 8.5
     assert values[headers.index("Rating Count")] == 2
+    assert "Individual Ratings" in wb.sheetnames
+
+    detail_ws = wb["Individual Ratings"]
+    detail_headers = [cell.value for cell in detail_ws[1]]
+    detail_values = [cell.value for cell in detail_ws[2]]
+    assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
+    assert detail_values[detail_headers.index("score")] == 8
+    assert detail_values[detail_headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
 def test_update_workbook_with_rating_summary(tmp_path):
@@ -44,7 +61,16 @@ def test_update_workbook_with_rating_summary(tmp_path):
     wb.save(source)
 
     summary = {"1260029222::momenttype::pro::clip1": {"avg": 9.0, "count": 3}}
-    updated = update_workbook_with_rating_summary(source, output, summary)
+    ratings = [{
+        "unique_clip_key": "1260029222::momenttype::pro::clip1",
+        "content_id": "1260029222",
+        "clip_type": "momenttype_pro",
+        "clip_id": "clip1",
+        "reviewer_email": "reviewer@jiostar.com",
+        "score": 9,
+        "submitted_at": "2026-07-09T00:00:00Z",
+    }]
+    updated = update_workbook_with_rating_summary(source, output, summary, ratings)
 
     assert updated == 1
     out_wb = load_workbook(output)
@@ -54,3 +80,10 @@ def test_update_workbook_with_rating_summary(tmp_path):
     assert values[headers.index("Unique Clip Key")] == "1260029222::momenttype::pro::clip1"
     assert values[headers.index("Avg User Rating")] == 9.0
     assert values[headers.index("Rating Count")] == 3
+    assert "Individual Ratings" in out_wb.sheetnames
+
+    detail_ws = out_wb["Individual Ratings"]
+    detail_headers = [cell.value for cell in detail_ws[1]]
+    detail_values = [cell.value for cell in detail_ws[2]]
+    assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
+    assert detail_values[detail_headers.index("score")] == 9

@@ -96,7 +96,7 @@ where unique_clip_key is null
 
 Then rerun the average query.
 
-## Copy Average User Ratings To The Sheet With Clip Drive Links
+## Copy Average And Individual User Ratings To The Sheet With Clip Drive Links
 
 There are two supported methods.
 
@@ -105,7 +105,7 @@ There are two supported methods.
 1. Open the Streamlit app.
 2. Sign in as an admin.
 3. Open `Admin view`.
-4. Click `Download Excel with average ratings`.
+4. Click `Download Excel with ratings`.
 5. The downloaded workbook includes:
    - `content_id`
    - `content_name`
@@ -117,6 +117,8 @@ There are two supported methods.
    - `description`
    - `Avg User Rating`
    - `Rating Count`
+   - an `Individual Ratings` tab with `reviewer_email`, `score`, and
+     `submitted_at` for every submitted rating
 
 Use this when you want a fresh workbook generated from the app data.
 
@@ -143,6 +145,7 @@ from the tab name or `output_set` / `output_label`, then adds or updates:
 - `Unique Clip Key`
 - `Avg User Rating`
 - `Rating Count`
+- `Individual Ratings` tab with one row per reviewer rating
 
 It preserves the original file unless you intentionally use the same path for
 input and output.

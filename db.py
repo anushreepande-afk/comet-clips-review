@@ -225,12 +225,15 @@ def fetch_my_ratings(reviewer_email: str, content_id: str, clip_type: str) -> Di
     return {row["clip_id"]: row["score"] for row in (resp.data or [])}
 
 
-def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
-    """Returns {unique_clip_key: {"avg": float, "count": int}} for all ratings."""
+def fetch_all_ratings() -> List[Dict]:
+    """Returns all rating rows, adding unique keys when older rows do not have them."""
     rows: List[Dict] = []
     start = 0
     page_size = 1000
-    select_with_unique_key = "unique_clip_key,clip_id,content_id,clip_type,score"
+    select_with_unique_key = (
+        "unique_clip_key,clip_set_key,clip_id,content_id,clip_type,"
+        "reviewer_email,score,submitted_at"
+    )
 
     while True:
         try:
@@ -247,7 +250,7 @@ def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
             resp = (
                 _client()
                 .table("ratings")
-                .select("clip_id,content_id,clip_type,score")
+                .select("clip_id,content_id,clip_type,reviewer_email,score,submitted_at")
                 .range(start, start + page_size - 1)
                 .execute()
             )
@@ -257,11 +260,22 @@ def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
             break
         start += page_size
 
+    for row in rows:
+        if row.get("content_id") and row.get("clip_type") and row.get("clip_id"):
+            unique_clip_key = build_unique_clip_key(row["content_id"], row["clip_type"], row["clip_id"])
+            row["unique_clip_key"] = row.get("unique_clip_key") or unique_clip_key
+            row["clip_set_key"] = row.get("clip_set_key") or unique_clip_key.rsplit("::", 1)[0]
+    return rows
+
+
+def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
+    """Returns {unique_clip_key: {"avg": float, "count": int}} for all ratings."""
+    rows = fetch_all_ratings()
     score_groups: Dict[str, List[int]] = {}
     for row in rows:
         if row.get("score") is None:
             continue
-        key = build_unique_clip_key(row["content_id"], row["clip_type"], row["clip_id"])
+        key = row.get("unique_clip_key") or build_unique_clip_key(row["content_id"], row["clip_type"], row["clip_id"])
         score_groups.setdefault(key, []).append(int(row["score"]))
 
     return {

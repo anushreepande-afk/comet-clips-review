@@ -21,7 +21,7 @@ from clip_data import (
     output_sets_for,
     tier_for_score,
 )
-from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, fetch_rating_summary, avg_score_for_clips
+from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, fetch_rating_summary, fetch_all_ratings, avg_score_for_clips
 from excel_export import build_rating_export_workbook
 
 # ---------------------------------------------------------------------------
@@ -513,9 +513,10 @@ if admin and len(tabs) > 1:
 
         st.markdown('<div class="section-label">Excel export</div>', unsafe_allow_html=True)
         rating_summary = fetch_rating_summary()
-        export_bytes = build_rating_export_workbook(load_clips(), rating_summary)
+        individual_ratings = fetch_all_ratings()
+        export_bytes = build_rating_export_workbook(load_clips(), rating_summary, individual_ratings)
         st.download_button(
-            "Download Excel with average ratings",
+            "Download Excel with ratings",
             data=export_bytes,
             file_name=f"comet_clip_ratings_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
