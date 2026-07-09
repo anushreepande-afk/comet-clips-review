@@ -1,12 +1,11 @@
 """
 Comet Clips Review — JioHotstar-themed Streamlit application.
-Stakeholders rate video clips (1–10); ratings stored in Supabase.
+Stakeholders accept or reject video clips; decisions are stored in Supabase.
 """
 from __future__ import annotations
 
 import html
 import streamlit as st
-from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -19,9 +18,8 @@ from clip_data import (
     load_clips,
     manifest_for,
     output_sets_for,
-    tier_for_score,
 )
-from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, fetch_rating_summary, fetch_all_ratings, avg_score_for_clips
+from db import upsert_rating, fetch_ratings_for_tab, fetch_my_ratings, fetch_rating_summary, fetch_all_ratings
 from excel_export import build_individual_ratings_workbook, build_rating_export_workbook
 
 # ---------------------------------------------------------------------------
@@ -67,10 +65,9 @@ st.markdown(
         letter-spacing: -0.5px;
         margin-bottom: 4px;
     }
-    /* tier badges */
-    .badge-gold   { background:#92400e; color:#fef3c7; padding:2px 10px; border-radius:9999px; font-size:0.78rem; font-weight:700; }
-    .badge-silver { background:#1e3a5f; color:#bfdbfe; padding:2px 10px; border-radius:9999px; font-size:0.78rem; font-weight:700; }
-    .badge-bronze { background:#7c2d12; color:#fed7aa; padding:2px 10px; border-radius:9999px; font-size:0.78rem; font-weight:700; }
+    /* decision badges */
+    .badge-accept { background:#064e3b; color:#a7f3d0; padding:2px 10px; border-radius:9999px; font-size:0.78rem; font-weight:800; }
+    .badge-reject { background:#7f1d1d; color:#fecaca; padding:2px 10px; border-radius:9999px; font-size:0.78rem; font-weight:800; }
     /* video wrapper — 16:9 */
     .video-wrapper {
         position: relative;
@@ -95,19 +92,6 @@ st.markdown(
         border-radius: 8px;
         font-weight: 600;
         margin-bottom: 12px;
-    }
-    /* score row progress bar (admin) */
-    .reviewer-bar-bg {
-        background: #2a2a2a;
-        border-radius: 4px;
-        height: 8px;
-        flex: 1;
-        margin: 0 8px;
-    }
-    .reviewer-bar-fill {
-        border-radius: 4px;
-        height: 8px;
-        background: linear-gradient(90deg, #1a56db, #a855f7);
     }
     /* misc */
     .section-label {
@@ -139,13 +123,15 @@ st.markdown(
         margin-top: 18px;
         margin-bottom: 8px;
     }
-    .rating-band {
-        font-size: 0.95rem;
-        font-weight: 800;
-    }
     div[data-testid="stButton"] button p {
         font-size: 1.05rem;
         font-weight: 700;
+    }
+    .decision-copy {
+        color:#9ca3af;
+        font-size:0.9rem;
+        line-height:1.45;
+        margin:6px 0 12px;
     }
     </style>
     """,
@@ -179,15 +165,17 @@ ss = st.session_state
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-TIER_BADGE: Dict[str, str] = {
-    "Gold":   "badge-gold",
-    "Silver": "badge-silver",
-    "Bronze": "badge-bronze",
-}
+ACCEPT_SCORE = 1
+REJECT_SCORE = 0
 
-def badge_html(tier: str) -> str:
-    css = TIER_BADGE.get(tier, "badge-bronze")
-    return f'<span class="{css}">{tier}</span>'
+def decision_from_score(score: Optional[int]) -> str:
+    if score is None:
+        return ""
+    return "Accept" if int(score) == ACCEPT_SCORE else "Reject"
+
+def badge_html(decision: str) -> str:
+    css = "badge-accept" if decision == "Accept" else "badge-reject"
+    return f'<span class="{css}">{decision}</span>'
 
 def drive_embed_html(file_id: str) -> str:
     if not file_id:
@@ -217,28 +205,23 @@ def next_unrated_idx(
     # All rated — stay on current
     return current_idx
 
-def _score_btn(val: int, score_key: str) -> None:
-    ss[score_key] = val
-
 def _render_reviewer_row(row: Dict) -> None:
     rev_email: str = row["reviewer_email"]
-    rev_score: int = row["score"]
-    rev_tier = tier_for_score(rev_score)
+    decision = decision_from_score(row.get("score"))
     rev_name = rev_email.split("@")[0]
     safe_rev_name = html.escape(rev_name)
     safe_rev_email = html.escape(rev_email)
-    bar_pct = int(rev_score / 10 * 100)
     st.markdown(
         f'<div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">'
-        f'<span style="color:#d1d5db; font-size:0.82rem; width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{safe_rev_email}">{safe_rev_name}</span>'
-        f'<div class="reviewer-bar-bg">'
-        f'<div class="reviewer-bar-fill" style="width:{bar_pct}%;"></div>'
-        f'</div>'
-        f'<span style="color:#f0f0f0; font-weight:700; font-size:0.85rem; width:20px; text-align:right;">{rev_score}</span>'
-        f'&nbsp;{badge_html(rev_tier)}'
+        f'<span style="color:#d1d5db; font-size:0.82rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{safe_rev_email}">{safe_rev_name}</span>'
+        f'{badge_html(decision)}'
         f'</div>',
         unsafe_allow_html=True,
     )
+
+def _go_to_clip(delta: int) -> None:
+    ss.active_idx = (ss.active_idx + delta) % n_clips
+    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Fetch data once (before sidebar and main area reuse)
@@ -249,19 +232,18 @@ current_manifest: Optional[Dict] = manifest_for(ss.content_id, ss.clip_type)
 
 my_ratings: Dict[str, int] = {}
 all_ratings: List[Dict] = []
-_avg_map: Dict[str, Optional[float]] = {}
+decision_summary: Dict[str, Dict[str, int]] = {}
 
 if n_clips > 0:
     my_ratings = fetch_my_ratings(email, ss.content_id, ss.clip_type)
     all_ratings = fetch_ratings_for_tab(ss.content_id, ss.clip_type)
-
-    # Pre-compute avg scores per clip_id (O(N) instead of O(N²))
-    _score_groups: Dict[str, list] = defaultdict(list)
     for r in all_ratings:
         if r["content_id"] == ss.content_id and r["clip_type"] == ss.clip_type:
-            _score_groups[r["clip_id"]].append(r["score"])
-    for cid, scores in _score_groups.items():
-        _avg_map[cid] = round(sum(scores) / len(scores), 1)
+            row = decision_summary.setdefault(r["clip_id"], {"accept": 0, "reject": 0})
+            if int(r["score"]) == ACCEPT_SCORE:
+                row["accept"] += 1
+            else:
+                row["reject"] += 1
 
 # ---------------------------------------------------------------------------
 # Sidebar
@@ -318,7 +300,7 @@ with st.sidebar:
             cid = clip["clip_id"]
             is_active = idx == ss.active_idx
 
-            # Keep clip navigation free of submitted or average rating scores.
+            # Keep clip navigation free of submitted decision values.
             if ss.active_tab == "admin":
                 label = f"{'▶ ' if is_active else ''}{cid}"
             else:
@@ -358,15 +340,10 @@ if ss.active_idx >= n_clips:
 clip = clips[ss.active_idx]
 clip_id: str = clip["clip_id"]
 file_id: str = clip["drive_file_id"]
-tier_clip: str = clip.get("tier", "Bronze")
-score_algo: int = int(clip.get("score", 0))
-watch_prob: int = int(clip.get("watch_prob", 0))
 
-# Pre-fill session state score from existing rating (do once per clip load)
-score_key = f"score_{ss.content_id}_{ss.clip_type}_{clip_id}"
-feedback_key = f"feedback_{ss.content_id}_{ss.clip_type}_{clip_id}"
-if score_key not in ss and clip_id in my_ratings:
-    ss[score_key] = my_ratings[clip_id]
+decision_key = f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}"
+if decision_key not in ss and clip_id in my_ratings:
+    ss[decision_key] = decision_from_score(my_ratings[clip_id])
 
 # ---------------------------------------------------------------------------
 # Tabs
@@ -389,10 +366,22 @@ with tabs[0]:
         )
         ss.flash = None
 
-    col_vid, col_panel = st.columns([3, 2])
+    col_prev, col_vid, col_panel, col_next = st.columns([0.35, 3, 2, 0.35])
+
+    with col_prev:
+        st.write("")
+        st.write("")
+        if st.button("‹", key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
+            _go_to_clip(-1)
 
     with col_vid:
         st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
+
+    with col_next:
+        st.write("")
+        st.write("")
+        if st.button("›", key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
+            _go_to_clip(1)
 
     with col_panel:
         st.markdown('<div class="clip-card">', unsafe_allow_html=True)
@@ -429,95 +418,47 @@ with tabs[0]:
         safe_desc = html.escape(clip.get("description", ""))
         st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
 
-        # Current rating badge (if already rated)
+        # Current decision badge (if already reviewed)
         existing_score: Optional[int] = my_ratings.get(clip_id)
         if existing_score is not None:
-            existing_tier = tier_for_score(existing_score)
+            current_decision = decision_from_score(existing_score)
             st.markdown(
-                f'<div style="margin-top:12px;" class="section-label">Your current rating</div>'
+                f'<div style="margin-top:12px;" class="section-label">Your decision</div>'
                 f'<div style="margin-top:4px;">'
-                f'<span style="font-size:1.5rem; font-weight:800; color:#f0f0f0;">{existing_score}</span>'
-                f'&nbsp;&nbsp;{badge_html(existing_tier)}'
+                f'{badge_html(current_decision)}'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-        st.markdown('<div class="rating-heading">Rate this clip</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rating-heading">Decision</div>', unsafe_allow_html=True)
+        st.markdown('<div class="decision-copy">Choose one option to save and move to the next clip.</div>', unsafe_allow_html=True)
 
-        # Rating buttons — 3 groups
-        selected_score: Optional[int] = ss.get(score_key)
-
-        # Bronze 1–3
-        st.markdown("<span class='rating-band' style='color:#fed7aa;'>Bronze · 1–3</span>", unsafe_allow_html=True)
-        bronze_cols = st.columns(3)
-        for i, val in enumerate([1, 2, 3]):
-            btn_t = "primary" if selected_score == val else "secondary"
-            if bronze_cols[i].button(str(val), key=f"btn_{ss.content_id}_{ss.clip_type}_{clip_id}_{val}", type=btn_t, use_container_width=True):
-                _score_btn(val, score_key)
+        decision_cols = st.columns(2)
+        actions = [("Accept", ACCEPT_SCORE), ("Reject", REJECT_SCORE)]
+        for col, (decision, score_to_save) in zip(decision_cols, actions):
+            if col.button(
+                decision,
+                key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_{decision.lower()}",
+                type="primary" if decision == "Accept" else "secondary",
+                use_container_width=True,
+            ):
+                try:
+                    upsert_rating(
+                        clip_id,
+                        ss.content_id,
+                        ss.clip_type,
+                        email,
+                        score_to_save,
+                        clip=clip,
+                    )
+                except Exception:
+                    st.error("Could not save this decision. Please check Supabase configuration and rerun the setup SQL if needed.")
+                    st.stop()
+                my_ratings[clip_id] = score_to_save
+                ss[decision_key] = decision
+                ss.flash = f"Saved — {decision}"
+                ss.active_idx = next_unrated_idx(clips, my_ratings, ss.active_idx)
                 st.rerun()
-
-        # Silver 4–6
-        st.markdown("<span class='rating-band' style='color:#bfdbfe;'>Silver · 4–6</span>", unsafe_allow_html=True)
-        silver_cols = st.columns(3)
-        for i, val in enumerate([4, 5, 6]):
-            btn_t = "primary" if selected_score == val else "secondary"
-            if silver_cols[i].button(str(val), key=f"btn_{ss.content_id}_{ss.clip_type}_{clip_id}_{val}", type=btn_t, use_container_width=True):
-                _score_btn(val, score_key)
-                st.rerun()
-
-        # Gold 7–10
-        st.markdown("<span class='rating-band' style='color:#fef3c7;'>Gold · 7–10</span>", unsafe_allow_html=True)
-        gold_cols = st.columns(4)
-        for i, val in enumerate([7, 8, 9, 10]):
-            btn_t = "primary" if selected_score == val else "secondary"
-            if gold_cols[i].button(str(val), key=f"btn_{ss.content_id}_{ss.clip_type}_{clip_id}_{val}", type=btn_t, use_container_width=True):
-                _score_btn(val, score_key)
-                st.rerun()
-
-        feedback_text = ""
-        if selected_score is not None and selected_score <= 6:
-            feedback_text = st.text_area(
-                "Feedback (optional)",
-                key=feedback_key,
-                placeholder="Add context for this rating",
-                height=90,
-            )
-
-        # Submit button
-        st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
-        submit_disabled = selected_score is None
-        if st.button(
-            "Submit rating",
-            key=f"submit_{ss.content_id}_{ss.clip_type}_{clip_id}",
-            type="primary",
-            disabled=submit_disabled,
-            use_container_width=True,
-        ):
-            score_to_save = int(selected_score)  # type: ignore[arg-type]
-            tier_saved = tier_for_score(score_to_save)
-            feedback_to_save = feedback_text.strip() if score_to_save <= 6 else ""
-            try:
-                upsert_rating(
-                    clip_id,
-                    ss.content_id,
-                    ss.clip_type,
-                    email,
-                    score_to_save,
-                    clip=clip,
-                    feedback_text=feedback_to_save,
-                )
-            except Exception:
-                st.error(
-                    "Could not save this rating. Please rerun supabase_unique_clips.sql in Supabase, "
-                    "then choose Run without RLS."
-                )
-                st.stop()
-            # Update local cache
-            my_ratings[clip_id] = score_to_save
-            ss.flash = f"Saved — {score_to_save} ({tier_saved})"
-            # Advance to next unrated clip
-            ss.active_idx = next_unrated_idx(clips, my_ratings, ss.active_idx)
-            st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)  # close clip-card
 
@@ -535,16 +476,16 @@ if admin and len(tabs) > 1:
         individual_export_bytes = build_individual_ratings_workbook(all_clips, individual_ratings)
         avg_col, individual_col = st.columns(2)
         avg_col.download_button(
-            "Download average ratings",
+            "Download decision summary",
             data=avg_export_bytes,
-            file_name=f"comet_clip_average_ratings_{export_stamp}.xlsx",
+            file_name=f"comet_clip_decision_summary_{export_stamp}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
         individual_col.download_button(
-            "Download individual ratings",
+            "Download individual decisions",
             data=individual_export_bytes,
-            file_name=f"comet_clip_individual_ratings_{export_stamp}.xlsx",
+            file_name=f"comet_clip_individual_decisions_{export_stamp}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
@@ -569,20 +510,23 @@ if admin and len(tabs) > 1:
                 unsafe_allow_html=True,
             )
 
-            # Algorithm score card
-            st.markdown('<div class="section-label" style="margin-top:12px;">Algorithm score</div>', unsafe_allow_html=True)
+            # Decision summary
+            summary = decision_summary.get(clip_id, {"accept": 0, "reject": 0})
+            total_decisions = summary["accept"] + summary["reject"]
+            acceptance_rate = round(summary["accept"] / total_decisions * 100) if total_decisions else 0
+            st.markdown('<div class="section-label" style="margin-top:12px;">Decision summary</div>', unsafe_allow_html=True)
             st.markdown(
-                f'<div style="display:flex; align-items:center; gap:12px; margin-top:4px;">'
-                f'<span style="font-size:2rem; font-weight:900; color:#f0f0f0;">{score_algo}</span>'
-                f'{badge_html(tier_clip)}'
-                f'<span style="color:#9ca3af; font-size:0.85rem;">Watch prob: <strong style="color:#f0f0f0;">{watch_prob}%</strong></span>'
+                f'<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">'
+                f'<span class="badge-accept">Accept {summary["accept"]}</span>'
+                f'<span class="badge-reject">Reject {summary["reject"]}</span>'
+                f'<span style="color:#9ca3af; font-size:0.85rem;">Acceptance: <strong style="color:#f0f0f0;">{acceptance_rate}%</strong></span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
             st.divider()
 
-            # Per-reviewer ratings
+            # Per-reviewer decisions
             clip_ratings = [
                 r for r in all_ratings
                 if r["clip_id"] == clip_id
@@ -590,12 +534,10 @@ if admin and len(tabs) > 1:
                 and r["clip_type"] == ss.clip_type
             ]
 
-            avg = _avg_map.get(clip_id)
-
-            st.markdown('<div class="section-label">Reviewer ratings</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-label">Reviewer decisions</div>', unsafe_allow_html=True)
 
             if not clip_ratings:
-                st.markdown('<span style="color:#6b7280; font-size:0.85rem;">No ratings yet.</span>', unsafe_allow_html=True)
+                st.markdown('<span style="color:#6b7280; font-size:0.85rem;">No decisions yet.</span>', unsafe_allow_html=True)
             else:
                 visible = clip_ratings[:15]
                 overflow = clip_ratings[15:]
@@ -607,14 +549,5 @@ if admin and len(tabs) > 1:
                     with st.expander(f"More ({len(overflow)})"):
                         for row in overflow:
                             _render_reviewer_row(row)
-
-                # Average (always visible when ratings exist)
-                st.markdown(
-                    f'<div style="margin-top:10px; display:flex; align-items:center; gap:8px;">'
-                    f'<span class="section-label" style="margin-bottom:0;">Average</span>'
-                    f'<span style="font-size:1.4rem; font-weight:800; color:#f0f0f0;">{avg}</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
 
             st.markdown("</div>", unsafe_allow_html=True)  # close clip-card

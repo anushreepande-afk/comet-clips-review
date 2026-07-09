@@ -2,6 +2,7 @@ import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from clip_data import (
     OUTPUT_SET_ORDER,
+    OUTPUT_SET_LABELS,
     all_content_ids,
     extract_drive_file_id,
     load_clips,
@@ -39,6 +40,7 @@ def test_load_clips_structure():
     assert "tier"          in first
     assert "watch_prob"    in first
     assert first["clip_type"] in OUTPUT_SET_ORDER
+    assert first["output_label"] == OUTPUT_SET_LABELS[first["clip_type"]]
 
 def test_new_dataset_shape():
     clips = load_clips()

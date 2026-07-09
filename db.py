@@ -372,18 +372,26 @@ def fetch_all_ratings() -> List[Dict]:
 
 
 def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
-    """Returns {unique_clip_key: {"avg": float, "count": int}} for all ratings."""
+    """Returns accept/reject counts for each unique clip."""
     rows = fetch_all_ratings()
-    score_groups: Dict[str, List[int]] = {}
+    decision_groups: Dict[str, Dict[str, int]] = {}
     for row in rows:
         if row.get("score") is None:
             continue
         key = row.get("unique_clip_key") or build_unique_clip_key(row["content_id"], row["clip_type"], row["clip_id"])
-        score_groups.setdefault(key, []).append(int(row["score"]))
+        groups = decision_groups.setdefault(key, {"accept_count": 0, "reject_count": 0, "total": 0})
+        if int(row["score"]) == 1:
+            groups["accept_count"] += 1
+        else:
+            groups["reject_count"] += 1
+        groups["total"] += 1
 
     return {
-        key: {"avg": round(sum(scores) / len(scores), 2), "count": len(scores)}
-        for key, scores in score_groups.items()
+        key: {
+            **counts,
+            "acceptance_rate": round(counts["accept_count"] / counts["total"], 4) if counts["total"] else None,
+        }
+        for key, counts in decision_groups.items()
     }
 
 

@@ -22,36 +22,35 @@ def test_build_rating_export_workbook():
         "genre_cms": "Drama",
         "description": "A key moment.",
     }]
-    summary = {"1260029222::momenttype::pro::clip1": {"avg": 8.5, "count": 2}}
+    summary = {"1260029222::momenttype::pro::clip1": {"accept_count": 2, "reject_count": 1, "total": 3, "acceptance_rate": 0.6667}}
     ratings = [{
         "unique_clip_key": "1260029222::momenttype::pro::clip1",
         "content_id": "1260029222",
         "clip_type": "momenttype_pro",
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
-        "score": 8,
-        "feedback_text": "Could be more compelling.",
+        "score": 1,
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
 
     data = build_rating_export_workbook(clips, summary, ratings)
     wb = load_workbook(BytesIO(data))
-    ws = wb["Example Movie Gamma"]
+    ws = wb["Example Movie V3"]
 
     headers = [cell.value for cell in ws[1]]
     values = [cell.value for cell in ws[2]]
-    assert "Avg User Rating" in headers
+    assert "Accept Count" in headers
     assert values[headers.index("unique_clip_key")] == "1260029222::momenttype::pro::clip1"
-    assert values[headers.index("Avg User Rating")] == 8.5
-    assert values[headers.index("Rating Count")] == 2
+    assert values[headers.index("Accept Count")] == 2
+    assert values[headers.index("Reject Count")] == 1
+    assert values[headers.index("Total Decisions")] == 3
     assert "Individual Ratings" in wb.sheetnames
 
     detail_ws = wb["Individual Ratings"]
     detail_headers = [cell.value for cell in detail_ws[1]]
     detail_values = [cell.value for cell in detail_ws[2]]
     assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
-    assert detail_values[detail_headers.index("score")] == 8
-    assert detail_values[detail_headers.index("feedback_text")] == "Could be more compelling."
+    assert detail_values[detail_headers.index("decision")] == "Accept"
     assert detail_values[detail_headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
@@ -69,8 +68,7 @@ def test_build_individual_ratings_workbook():
         "clip_type": "momenttype_pro",
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
-        "score": 8,
-        "feedback_text": "Too slow.",
+        "score": 0,
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
 
@@ -82,8 +80,7 @@ def test_build_individual_ratings_workbook():
     headers = [cell.value for cell in ws[1]]
     values = [cell.value for cell in ws[2]]
     assert values[headers.index("reviewer_email")] == "reviewer@jiostar.com"
-    assert values[headers.index("score")] == 8
-    assert values[headers.index("feedback_text")] == "Too slow."
+    assert values[headers.index("decision")] == "Reject"
     assert values[headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
@@ -93,20 +90,19 @@ def test_update_workbook_with_rating_summary(tmp_path):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Example Gamma"
+    ws.title = "Example V3"
     ws.append(["content_id", "content_name", "output_set", "clip_id"])
-    ws.append(["1260029222", "Example Movie", "Gamma", "clip1"])
+    ws.append(["1260029222", "Example Movie", "V3", "clip1"])
     wb.save(source)
 
-    summary = {"1260029222::momenttype::pro::clip1": {"avg": 9.0, "count": 3}}
+    summary = {"1260029222::momenttype::pro::clip1": {"accept_count": 3, "reject_count": 1, "total": 4, "acceptance_rate": 0.75}}
     ratings = [{
         "unique_clip_key": "1260029222::momenttype::pro::clip1",
         "content_id": "1260029222",
         "clip_type": "momenttype_pro",
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
-        "score": 9,
-        "feedback_text": "",
+        "score": 1,
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
     updated = update_workbook_with_rating_summary(source, output, summary, ratings)
@@ -117,12 +113,13 @@ def test_update_workbook_with_rating_summary(tmp_path):
     headers = [cell.value for cell in out_ws[1]]
     values = [cell.value for cell in out_ws[2]]
     assert values[headers.index("Unique Clip Key")] == "1260029222::momenttype::pro::clip1"
-    assert values[headers.index("Avg User Rating")] == 9.0
-    assert values[headers.index("Rating Count")] == 3
+    assert values[headers.index("Accept Count")] == 3
+    assert values[headers.index("Reject Count")] == 1
+    assert values[headers.index("Total Decisions")] == 4
     assert "Individual Ratings" in out_wb.sheetnames
 
     detail_ws = out_wb["Individual Ratings"]
     detail_headers = [cell.value for cell in detail_ws[1]]
     detail_values = [cell.value for cell in detail_ws[2]]
     assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
-    assert detail_values[detail_headers.index("score")] == 9
+    assert detail_values[detail_headers.index("decision")] == "Accept"
