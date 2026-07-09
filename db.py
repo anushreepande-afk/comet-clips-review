@@ -90,6 +90,7 @@ def _build_upsert_payload(
     clip_type: str,
     reviewer_email: str,
     score: int,
+    feedback_text: Optional[str] = None,
     unique_clip_key: Optional[str] = None,
     clip_set_key: Optional[str] = None,
 ) -> Dict:
@@ -104,6 +105,8 @@ def _build_upsert_payload(
         payload["unique_clip_key"] = unique_clip_key
     if clip_set_key:
         payload["clip_set_key"] = clip_set_key
+    if feedback_text is not None:
+        payload["feedback_text"] = feedback_text
     return payload
 
 
@@ -131,6 +134,7 @@ def _upsert_legacy_rating(
     clip_type: str,
     reviewer_email: str,
     score: int,
+    feedback_text: Optional[str] = None,
 ) -> None:
     payload = _build_upsert_payload(
         clip_id,
@@ -138,6 +142,7 @@ def _upsert_legacy_rating(
         clip_type,
         reviewer_email,
         score,
+        feedback_text=feedback_text,
     )
     match = {
         "clip_id": clip_id,
@@ -145,16 +150,37 @@ def _upsert_legacy_rating(
         "clip_type": clip_type,
         "reviewer_email": reviewer_email,
     }
-    update_resp = (
-        _client()
-        .table("ratings")
-        .update({"score": score})
-        .match(match)
-        .execute()
-    )
+    update_values = {"score": score}
+    if feedback_text is not None:
+        update_values["feedback_text"] = feedback_text
+    try:
+        update_resp = (
+            _client()
+            .table("ratings")
+            .update(update_values)
+            .match(match)
+            .execute()
+        )
+    except Exception as exc:
+        if feedback_text is None or not _is_schema_error(exc):
+            raise
+        payload.pop("feedback_text", None)
+        update_resp = (
+            _client()
+            .table("ratings")
+            .update({"score": score})
+            .match(match)
+            .execute()
+        )
     if update_resp.data:
         return
-    _client().table("ratings").insert(payload).execute()
+    try:
+        _client().table("ratings").insert(payload).execute()
+    except Exception as exc:
+        if "feedback_text" not in payload or not _is_schema_error(exc):
+            raise
+        payload.pop("feedback_text", None)
+        _client().table("ratings").insert(payload).execute()
 
 
 def upsert_rating(
@@ -164,6 +190,7 @@ def upsert_rating(
     reviewer_email: str,
     score: int,
     clip: Optional[Dict] = None,
+    feedback_text: Optional[str] = None,
 ) -> None:
     unique_clip_key = build_unique_clip_key(content_id, clip_type, clip_id)
     clip_set_key = unique_clip_key.rsplit("::", 1)[0]
@@ -173,6 +200,7 @@ def upsert_rating(
         clip_type,
         reviewer_email,
         score,
+        feedback_text=feedback_text,
         unique_clip_key=unique_clip_key,
         clip_set_key=clip_set_key,
     )
@@ -189,25 +217,37 @@ def upsert_rating(
                     on_conflict="unique_clip_key",
                 ).execute()
             except Exception:
-                _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score)
+                _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score, feedback_text)
                 return
         _client().table("ratings").upsert(
             rating_payload,
             on_conflict="unique_clip_key,reviewer_email",
         ).execute()
     except Exception:
-        _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score)
+        _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score, feedback_text)
 
 
 def fetch_ratings_for_tab(content_id: str, clip_type: str) -> List[Dict]:
-    resp = (
-        _client()
-        .table("ratings")
-        .select("clip_id,content_id,clip_type,reviewer_email,score,submitted_at")
-        .eq("content_id", content_id)
-        .eq("clip_type", clip_type)
-        .execute()
-    )
+    try:
+        resp = (
+            _client()
+            .table("ratings")
+            .select("clip_id,content_id,clip_type,reviewer_email,score,feedback_text,submitted_at")
+            .eq("content_id", content_id)
+            .eq("clip_type", clip_type)
+            .execute()
+        )
+    except Exception as exc:
+        if not _is_schema_error(exc):
+            raise
+        resp = (
+            _client()
+            .table("ratings")
+            .select("clip_id,content_id,clip_type,reviewer_email,score,submitted_at")
+            .eq("content_id", content_id)
+            .eq("clip_type", clip_type)
+            .execute()
+        )
     return resp.data or []
 
 
@@ -232,7 +272,7 @@ def fetch_all_ratings() -> List[Dict]:
     page_size = 1000
     select_with_unique_key = (
         "unique_clip_key,clip_set_key,clip_id,content_id,clip_type,"
-        "reviewer_email,score,submitted_at"
+        "reviewer_email,score,feedback_text,submitted_at"
     )
 
     while True:
@@ -247,13 +287,27 @@ def fetch_all_ratings() -> List[Dict]:
         except Exception as exc:
             if not _is_schema_error(exc):
                 raise
-            resp = (
-                _client()
-                .table("ratings")
-                .select("clip_id,content_id,clip_type,reviewer_email,score,submitted_at")
-                .range(start, start + page_size - 1)
-                .execute()
-            )
+            try:
+                resp = (
+                    _client()
+                    .table("ratings")
+                    .select(
+                        "unique_clip_key,clip_set_key,clip_id,content_id,clip_type,"
+                        "reviewer_email,score,submitted_at"
+                    )
+                    .range(start, start + page_size - 1)
+                    .execute()
+                )
+            except Exception as fallback_exc:
+                if not _is_schema_error(fallback_exc):
+                    raise
+                resp = (
+                    _client()
+                    .table("ratings")
+                    .select("clip_id,content_id,clip_type,reviewer_email,score,submitted_at")
+                    .range(start, start + page_size - 1)
+                    .execute()
+                )
         page = resp.data or []
         rows.extend(page)
         if len(page) < page_size:

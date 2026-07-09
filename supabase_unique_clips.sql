@@ -67,7 +67,8 @@ alter table public.clips
 
 alter table public.ratings
     add column if not exists clip_set_key text,
-    add column if not exists unique_clip_key text;
+    add column if not exists unique_clip_key text,
+    add column if not exists feedback_text text;
 
 update public.ratings
 set

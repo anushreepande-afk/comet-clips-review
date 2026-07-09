@@ -52,6 +52,7 @@ INDIVIDUAL_RATING_HEADERS = [
     "clip_drive_link",
     "reviewer_email",
     "score",
+    "feedback_text",
     "submitted_at",
 ]
 
@@ -120,7 +121,8 @@ def _style_individual_ratings_sheet(ws) -> None:
         "F": 48,
         "G": 30,
         "H": 10,
-        "I": 22,
+        "I": 48,
+        "J": 22,
     }
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
@@ -176,6 +178,7 @@ def _append_individual_ratings_sheet(wb, clip_meta: Dict[str, Dict], ratings: It
             meta.get("clip_drive_link", ""),
             rating.get("reviewer_email", ""),
             rating.get("score", ""),
+            rating.get("feedback_text", ""),
             rating.get("submitted_at", ""),
         ])
         link_cell = ws.cell(row=ws.max_row, column=6)

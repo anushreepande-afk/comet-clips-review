@@ -30,6 +30,7 @@ def test_build_rating_export_workbook():
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
         "score": 8,
+        "feedback_text": "Could be more compelling.",
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
 
@@ -50,6 +51,7 @@ def test_build_rating_export_workbook():
     detail_values = [cell.value for cell in detail_ws[2]]
     assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
     assert detail_values[detail_headers.index("score")] == 8
+    assert detail_values[detail_headers.index("feedback_text")] == "Could be more compelling."
     assert detail_values[detail_headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
@@ -68,6 +70,7 @@ def test_build_individual_ratings_workbook():
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
         "score": 8,
+        "feedback_text": "Too slow.",
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
 
@@ -80,6 +83,7 @@ def test_build_individual_ratings_workbook():
     values = [cell.value for cell in ws[2]]
     assert values[headers.index("reviewer_email")] == "reviewer@jiostar.com"
     assert values[headers.index("score")] == 8
+    assert values[headers.index("feedback_text")] == "Too slow."
     assert values[headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
@@ -102,6 +106,7 @@ def test_update_workbook_with_rating_summary(tmp_path):
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
         "score": 9,
+        "feedback_text": "",
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
     updated = update_workbook_with_rating_summary(source, output, summary, ratings)

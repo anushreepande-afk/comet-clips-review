@@ -364,6 +364,7 @@ watch_prob: int = int(clip.get("watch_prob", 0))
 
 # Pre-fill session state score from existing rating (do once per clip load)
 score_key = f"score_{ss.content_id}_{ss.clip_type}_{clip_id}"
+feedback_key = f"feedback_{ss.content_id}_{ss.clip_type}_{clip_id}"
 if score_key not in ss and clip_id in my_ratings:
     ss[score_key] = my_ratings[clip_id]
 
@@ -473,6 +474,15 @@ with tabs[0]:
                 _score_btn(val, score_key)
                 st.rerun()
 
+        feedback_text = ""
+        if selected_score is not None and selected_score <= 6:
+            feedback_text = st.text_area(
+                "Feedback (optional)",
+                key=feedback_key,
+                placeholder="Add context for this rating",
+                height=90,
+            )
+
         # Submit button
         st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
         submit_disabled = selected_score is None
@@ -485,8 +495,17 @@ with tabs[0]:
         ):
             score_to_save = int(selected_score)  # type: ignore[arg-type]
             tier_saved = tier_for_score(score_to_save)
+            feedback_to_save = feedback_text.strip() if score_to_save <= 6 else ""
             try:
-                upsert_rating(clip_id, ss.content_id, ss.clip_type, email, score_to_save, clip=clip)
+                upsert_rating(
+                    clip_id,
+                    ss.content_id,
+                    ss.clip_type,
+                    email,
+                    score_to_save,
+                    clip=clip,
+                    feedback_text=feedback_to_save,
+                )
             except Exception:
                 st.error(
                     "Could not save this rating. Please rerun supabase_unique_clips.sql in Supabase, "

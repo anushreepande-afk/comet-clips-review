@@ -26,6 +26,7 @@ def test_build_upsert_payload():
         clip_type="momenttype",
         reviewer_email="test@jiostar.com",
         score=8,
+        feedback_text="Needs a stronger hook.",
         unique_clip_key="1260029222::momenttype::pro::clip1",
         clip_set_key="1260029222::momenttype::pro",
     )
@@ -34,6 +35,7 @@ def test_build_upsert_payload():
     assert payload["clip_type"]      == "momenttype"
     assert payload["reviewer_email"] == "test@jiostar.com"
     assert payload["score"]          == 8
+    assert payload["feedback_text"]  == "Needs a stronger hook."
     assert payload["unique_clip_key"] == "1260029222::momenttype::pro::clip1"
     assert payload["clip_set_key"] == "1260029222::momenttype::pro"
 

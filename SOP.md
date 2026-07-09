@@ -18,6 +18,7 @@ select
   clip_set_key,
   unique_clip_key,
   score,
+  feedback_text,
   submitted_at
 from ratings
 order by submitted_at desc
@@ -25,7 +26,8 @@ limit 20;
 ```
 
 5. Confirm the latest row has the expected reviewer email and score.
-6. Confirm the row is attached to the right clip:
+6. If the score is between 1 and 6, check `feedback_text` if the reviewer added feedback.
+7. Confirm the row is attached to the right clip:
 
 ```text
 content_id::prompt::model::clip_id
@@ -127,6 +129,7 @@ There are two supported methods.
    - `clip_drive_link`
    - `reviewer_email`
    - `score`
+   - `feedback_text`
    - `submitted_at`
 
 Use these when you want fresh workbooks generated from the app data.
