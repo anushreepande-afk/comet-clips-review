@@ -52,7 +52,7 @@ st.markdown(
         background: #1a1a1a;
         border: 1px solid #2a2a2a;
         border-radius: 10px;
-        padding: 16px;
+        padding: 12px;
     }
     /* gradient logo text */
     .logo-gradient {
@@ -116,22 +116,27 @@ st.markdown(
     }
     .rating-heading {
         color: #f3f4f6;
-        font-size: 1rem;
+        font-size: 0.86rem;
         font-weight: 800;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        margin-top: 18px;
-        margin-bottom: 8px;
+        margin-top: 10px;
+        margin-bottom: 4px;
     }
     div[data-testid="stButton"] button p {
         font-size: 1.05rem;
         font-weight: 700;
     }
-    .decision-copy {
-        color:#9ca3af;
-        font-size:0.9rem;
-        line-height:1.45;
-        margin:6px 0 12px;
+    .decision-row {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:8px;
+        margin-top:8px;
+        margin-bottom:4px;
+    }
+    .decision-row .section-label {
+        margin-bottom:0;
     }
     </style>
     """,
@@ -284,7 +289,7 @@ with st.sidebar:
     # Content ID selector
     content_id_idx = content_ids.index(ss.content_id) if ss.content_id in content_ids else 0
     chosen_cid = st.selectbox(
-        "Content",
+        "Select content id to review",
         options=content_ids,
         index=content_id_idx,
         format_func=lambda cid: f"{content_name_for(cid)} ({cid})",
@@ -398,7 +403,7 @@ with tabs[0]:
                 ss.active_idx = 0
                 st.rerun()
 
-    col_vid, col_panel = st.columns([3, 2])
+    col_vid, col_panel = st.columns([4.4, 1.35])
 
     with col_vid:
         st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
@@ -461,18 +466,19 @@ with tabs[0]:
         existing_score: Optional[int] = my_ratings.get(clip_id)
         if existing_score is not None:
             current_decision = decision_from_score(existing_score)
-            st.markdown(
-                f'<div style="margin-top:12px;" class="section-label">Your decision</div>'
-                f'<div style="margin-top:4px;">'
-                f'{badge_html(current_decision)}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+            current_decision_html = badge_html(current_decision)
+        else:
+            current_decision_html = '<span style="color:#6b7280;font-size:0.82rem;font-weight:700;">Not reviewed</span>'
 
-        st.markdown('<div class="rating-heading">Decision</div>', unsafe_allow_html=True)
-        st.markdown('<div class="decision-copy">Choose one option to save and move to the next clip.</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="decision-row">'
+            f'<div class="section-label">Decision</div>'
+            f'{current_decision_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-        decision_cols = st.columns(2)
+        decision_cols = st.columns(2, gap="small")
         actions = [("Accept", ACCEPT_SCORE), ("Reject", REJECT_SCORE)]
         for col, (decision, score_to_save) in zip(decision_cols, actions):
             if col.button(
@@ -534,7 +540,7 @@ if admin and len(tabs) > 1:
 
         st.divider()
 
-        col_vid2, col_panel2 = st.columns([3, 2])
+        col_vid2, col_panel2 = st.columns([4.4, 1.35])
 
         with col_vid2:
             st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
