@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 import streamlit as st
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from auth import require_auth, is_admin
 from clip_data import (
@@ -246,6 +246,14 @@ def _render_reviewer_row(row: Dict) -> None:
         unsafe_allow_html=True,
     )
 
+def _review_targets() -> List[Tuple[str, str]]:
+    targets: List[Tuple[str, str]] = []
+    for content_id in content_ids:
+        for clip_type in output_sets_for(content_id):
+            if clips_for(content_id, clip_type):
+                targets.append((content_id, clip_type))
+    return targets
+
 def _move_clip(delta: int, rerun: bool = True) -> None:
     if n_clips == 0:
         return
@@ -255,13 +263,18 @@ def _move_clip(delta: int, rerun: bool = True) -> None:
     elif delta < 0 and ss.active_idx > 0:
         ss.active_idx -= 1
     else:
-        sets = output_sets_for(ss.content_id)
-        if sets and ss.clip_type in sets:
-            current_set_idx = sets.index(ss.clip_type)
-            next_set_idx = (current_set_idx + (1 if delta > 0 else -1)) % len(sets)
-            ss.clip_type = sets[next_set_idx]
-            target_clips = clips_for(ss.content_id, ss.clip_type)
-            ss.active_idx = 0 if delta > 0 else max(len(target_clips) - 1, 0)
+        targets = _review_targets()
+        current_target = (ss.content_id, ss.clip_type)
+        if current_target in targets:
+            current_target_idx = targets.index(current_target)
+            next_target_idx = current_target_idx + (1 if delta > 0 else -1)
+            if 0 <= next_target_idx < len(targets):
+                ss.content_id, ss.clip_type = targets[next_target_idx]
+                ss["_sidebar_content_id"] = ss.content_id
+                target_clips = clips_for(ss.content_id, ss.clip_type)
+                ss.active_idx = 0 if delta > 0 else max(len(target_clips) - 1, 0)
+            else:
+                ss.active_idx = n_clips - 1 if delta > 0 else 0
         else:
             ss.active_idx = 0
 
@@ -426,7 +439,7 @@ with col_vid:
         "‹ Previous",
         key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}",
         use_container_width=True,
-        help="Go to the previous clip. At the start of a version, this moves to the previous version.",
+        help="Go to the previous clip. At the start of a version, this moves to the previous version or previous content.",
     ):
         _move_clip(-1)
     nav_counter.markdown(
@@ -437,7 +450,7 @@ with col_vid:
         "Next ›",
         key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}",
         use_container_width=True,
-        help="Go to the next clip. At the end of a version, this moves to the next version.",
+        help="Go to the next clip. At the end of a version, this moves to the next version or next content.",
     ):
         _move_clip(1)
 
