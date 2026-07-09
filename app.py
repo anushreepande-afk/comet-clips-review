@@ -407,12 +407,11 @@ with st.sidebar:
             else:
                 label = cid
 
-            btn_type = "primary" if is_reviewed else "secondary"
             if st.button(
                 label,
                 key=f"nav_{ss.content_id}_{ss.clip_type}_{idx}",
                 use_container_width=True,
-                type=btn_type,
+                type="secondary",
                 help=f"Jump to {cid} in the current version.",
             ):
                 ss.active_idx = idx
