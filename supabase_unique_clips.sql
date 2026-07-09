@@ -70,6 +70,44 @@ alter table public.ratings
     add column if not exists unique_clip_key text,
     add column if not exists feedback_text text;
 
+-- Accept/Reject mode stores Accept as 1 and Reject as 0. Older deployments may
+-- still have a 1-10 score check, which blocks Reject decisions.
+do $$
+declare
+    constraint_name text;
+begin
+    for constraint_name in
+        select con.conname
+        from pg_constraint con
+        join pg_class rel on rel.oid = con.conrelid
+        join pg_namespace nsp on nsp.oid = rel.relnamespace
+        where nsp.nspname = 'public'
+          and rel.relname = 'ratings'
+          and con.contype = 'c'
+          and pg_get_constraintdef(con.oid) ilike '%score%'
+    loop
+        execute format('alter table public.ratings drop constraint if exists %I', constraint_name);
+    end loop;
+end $$;
+
+do $$
+begin
+    if not exists (
+        select 1
+        from public.ratings
+        where score is not null
+          and score not in (0, 1)
+    ) and not exists (
+        select 1
+        from pg_constraint
+        where conname = 'ratings_score_binary_check'
+    ) then
+        alter table public.ratings
+            add constraint ratings_score_binary_check
+            check (score in (0, 1));
+    end if;
+end $$;
+
 update public.ratings
 set
     clip_set_key = public.comet_clip_set_key(content_id, clip_type),

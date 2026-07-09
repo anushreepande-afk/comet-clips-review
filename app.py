@@ -490,7 +490,10 @@ with col_panel:
                     clip=clip,
                 )
             except Exception:
-                st.error("Could not save this decision. Please check Supabase configuration and rerun the setup SQL if needed.")
+                st.error(
+                    "Could not save this decision. If Reject is failing, run the updated "
+                    "Supabase setup SQL so decisions can be stored as Accept = 1 and Reject = 0."
+                )
                 st.stop()
             my_ratings[clip_id] = score_to_save
             ss[decision_key] = decision
