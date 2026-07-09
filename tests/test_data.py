@@ -45,7 +45,7 @@ def test_new_dataset_shape():
     manifest = load_manifest()
     assert len(all_content_ids()) == 11
     assert len(manifest) == 44
-    assert len(clips) == 427
+    assert len(clips) == 437
     assert {c["clip_type"] for c in clips} == set(OUTPUT_SET_ORDER)
 
 def test_genre_cms_stays_separate_from_generic_genre():
@@ -59,5 +59,7 @@ def test_output_sets_for_each_content():
 def test_manifest_tracks_missing_sources():
     rudra_ch_pro = manifest_for("1260084562", "cliffhanger_pro")
     rudra_mt_pro = manifest_for("1260084562", "momenttype_pro")
-    assert rudra_ch_pro["source_status"] == "JSON and clip folder missing"
-    assert rudra_mt_pro["source_status"] == "JSON missing"
+    assert rudra_ch_pro["source_status"] == "OK"
+    assert rudra_ch_pro["clip_links"] == 10
+    assert rudra_mt_pro["source_status"] == "OK"
+    assert rudra_mt_pro["clip_links"] == 10
