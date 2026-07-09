@@ -272,7 +272,11 @@ if n_clips > 0:
 with st.sidebar:
     st.markdown('<div class="logo-gradient">Comet Clips Review</div>', unsafe_allow_html=True)
     st.caption(f"Signed in as **{email}**")
-    if st.button("Sign out", key="signout_btn"):
+    if st.button(
+        "Sign out",
+        key="signout_btn",
+        help="Sign out of the review app.",
+    ):
         st.logout()
 
     st.divider()
@@ -285,6 +289,7 @@ with st.sidebar:
         index=content_id_idx,
         format_func=lambda cid: f"{content_name_for(cid)} ({cid})",
         key="_sidebar_content_id",
+        help="Choose the content title whose clips you want to review.",
     )
     if chosen_cid != ss.content_id:
         ss.content_id = chosen_cid
@@ -317,7 +322,13 @@ with st.sidebar:
                     label = cid
 
             btn_type = "primary" if is_active else "secondary"
-            if st.button(label, key=f"nav_{ss.content_id}_{ss.clip_type}_{idx}", use_container_width=True, type=btn_type):
+            if st.button(
+                label,
+                key=f"nav_{ss.content_id}_{ss.clip_type}_{idx}",
+                use_container_width=True,
+                type=btn_type,
+                help=f"Jump to {cid} in the current version.",
+            ):
                 ss.active_idx = idx
                 st.rerun()
 
@@ -376,7 +387,13 @@ with tabs[0]:
         for idx, option in enumerate(output_options):
             label = OUTPUT_SET_LABELS.get(option, option)
             btn_type = "primary" if option == ss.clip_type else "secondary"
-            if ribbon_cols[idx].button(label, key=f"ribbon_{ss.content_id}_{option}", type=btn_type, use_container_width=True):
+            if ribbon_cols[idx].button(
+                label,
+                key=f"ribbon_{ss.content_id}_{option}",
+                type=btn_type,
+                use_container_width=True,
+                help=f"Switch to {label} for this content.",
+            ):
                 ss.clip_type = option
                 ss.active_idx = 0
                 st.rerun()
@@ -386,13 +403,23 @@ with tabs[0]:
     with col_vid:
         st.markdown(drive_embed_html(file_id), unsafe_allow_html=True)
         nav_left, nav_counter, nav_right = st.columns([1, 1.2, 1])
-        if nav_left.button("‹ Previous", key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
+        if nav_left.button(
+            "‹ Previous",
+            key=f"prev_{ss.content_id}_{ss.clip_type}_{clip_id}",
+            use_container_width=True,
+            help="Go to the previous clip. At the start of a version, this moves to the previous version.",
+        ):
             _move_clip(-1)
         nav_counter.markdown(
             f"<div style='text-align:center;color:#9ca3af;font-weight:700;padding-top:0.45rem;'>{ss.active_idx + 1} / {n_clips}</div>",
             unsafe_allow_html=True,
         )
-        if nav_right.button("Next ›", key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}", use_container_width=True):
+        if nav_right.button(
+            "Next ›",
+            key=f"next_{ss.content_id}_{ss.clip_type}_{clip_id}",
+            use_container_width=True,
+            help="Go to the next clip. At the end of a version, this moves to the next version.",
+        ):
             _move_clip(1)
 
     with col_panel:
@@ -453,6 +480,7 @@ with tabs[0]:
                 key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_{decision.lower()}",
                 type="primary" if decision == "Accept" else "secondary",
                 use_container_width=True,
+                help=f"Save this clip as {decision} and move to the next clip.",
             ):
                 try:
                     upsert_rating(
@@ -493,6 +521,7 @@ if admin and len(tabs) > 1:
             file_name=f"comet_clip_decision_summary_{export_stamp}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
+            help="Download clip-level Accept/Reject counts and acceptance rate.",
         )
         individual_col.download_button(
             "Download individual decisions",
@@ -500,6 +529,7 @@ if admin and len(tabs) > 1:
             file_name=f"comet_clip_individual_decisions_{export_stamp}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
+            help="Download each reviewer decision with content, version, and clip link details.",
         )
 
         st.divider()
