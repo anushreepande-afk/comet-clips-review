@@ -173,10 +173,34 @@ admin: bool = is_admin(email)
 # ---------------------------------------------------------------------------
 content_ids = all_content_ids()
 
+def _query_value(key: str) -> Optional[str]:
+    value = st.query_params.get(key)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+def _query_int(key: str, default: int) -> int:
+    try:
+        return int(_query_value(key) or default)
+    except (TypeError, ValueError):
+        return default
+
+query_content_id = _query_value("content_id")
+default_content_id = query_content_id if query_content_id in content_ids else content_ids[0]
+
+query_output_options = output_sets_for(default_content_id)
+query_clip_type = _query_value("clip_type")
+default_clip_type = (
+    query_clip_type
+    if query_clip_type in query_output_options
+    else (query_output_options[0] if query_output_options else "cliffhanger_pro")
+)
+default_active_idx = max(_query_int("clip", 1) - 1, 0)
+
 _defaults: Dict = {
-    "content_id": content_ids[0],
-    "clip_type":  "cliffhanger_pro",
-    "active_idx": 0,
+    "content_id": default_content_id,
+    "clip_type":  default_clip_type,
+    "active_idx": default_active_idx,
     "flash":      None,
     "active_tab": "reviewer",
 }
@@ -234,6 +258,16 @@ def next_unrated_idx(
 
 def all_clips_rated(clips: List[Dict], my_ratings: Dict[str, int]) -> bool:
     return bool(clips) and all(clip["clip_id"] in my_ratings for clip in clips)
+
+def _sync_review_url() -> None:
+    params = {
+        "content_id": str(ss.content_id),
+        "clip_type": str(ss.clip_type),
+        "clip": str(ss.active_idx + 1),
+    }
+    for key, value in params.items():
+        if _query_value(key) != value:
+            st.query_params[key] = value
 
 def _render_reviewer_row(row: Dict) -> None:
     rev_email: str = row["reviewer_email"]
@@ -412,6 +446,8 @@ if (
 ):
     if _move_version(1, rerun=False):
         st.rerun()
+
+_sync_review_url()
 
 clip = clips[ss.active_idx]
 clip_id: str = clip["clip_id"]
