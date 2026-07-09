@@ -128,6 +128,17 @@ def _is_schema_error(exc: Exception) -> bool:
     return any(marker in message for marker in schema_markers)
 
 
+def _without_feedback(payload: Dict) -> Dict:
+    clean_payload = payload.copy()
+    clean_payload.pop("feedback_text", None)
+    return clean_payload
+
+
+def _is_duplicate_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "duplicate key" in message or "already exists" in message
+
+
 def _upsert_legacy_rating(
     clip_id: str,
     content_id: str,
@@ -150,9 +161,33 @@ def _upsert_legacy_rating(
         "clip_type": clip_type,
         "reviewer_email": reviewer_email,
     }
+
+    try:
+        _client().table("ratings").upsert(
+            payload,
+            on_conflict="clip_id,content_id,clip_type,reviewer_email",
+        ).execute()
+        return
+    except Exception as exc:
+        if feedback_text is None or not _is_schema_error(exc):
+            if not _is_schema_error(exc):
+                raise
+        else:
+            payload = _without_feedback(payload)
+            try:
+                _client().table("ratings").upsert(
+                    payload,
+                    on_conflict="clip_id,content_id,clip_type,reviewer_email",
+                ).execute()
+                return
+            except Exception as retry_exc:
+                if not _is_schema_error(retry_exc):
+                    raise
+
     update_values = {"score": score}
-    if feedback_text is not None:
-        update_values["feedback_text"] = feedback_text
+    if "feedback_text" in payload:
+        update_values["feedback_text"] = payload["feedback_text"]
+
     try:
         update_resp = (
             _client()
@@ -162,9 +197,9 @@ def _upsert_legacy_rating(
             .execute()
         )
     except Exception as exc:
-        if feedback_text is None or not _is_schema_error(exc):
+        if "feedback_text" not in update_values or not _is_schema_error(exc):
             raise
-        payload.pop("feedback_text", None)
+        payload = _without_feedback(payload)
         update_resp = (
             _client()
             .table("ratings")
@@ -177,10 +212,16 @@ def _upsert_legacy_rating(
     try:
         _client().table("ratings").insert(payload).execute()
     except Exception as exc:
+        if _is_duplicate_error(exc):
+            return
         if "feedback_text" not in payload or not _is_schema_error(exc):
             raise
-        payload.pop("feedback_text", None)
-        _client().table("ratings").insert(payload).execute()
+        try:
+            _client().table("ratings").insert(_without_feedback(payload)).execute()
+        except Exception as retry_exc:
+            if _is_duplicate_error(retry_exc):
+                return
+            raise
 
 
 def upsert_rating(
@@ -219,10 +260,18 @@ def upsert_rating(
             except Exception:
                 _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score, feedback_text)
                 return
-        _client().table("ratings").upsert(
-            rating_payload,
-            on_conflict="unique_clip_key,reviewer_email",
-        ).execute()
+        try:
+            _client().table("ratings").upsert(
+                rating_payload,
+                on_conflict="unique_clip_key,reviewer_email",
+            ).execute()
+        except Exception as exc:
+            if feedback_text is None or not _is_schema_error(exc):
+                raise
+            _client().table("ratings").upsert(
+                _without_feedback(rating_payload),
+                on_conflict="unique_clip_key,reviewer_email",
+            ).execute()
     except Exception:
         _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score, feedback_text)
 
