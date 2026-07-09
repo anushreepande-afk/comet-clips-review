@@ -350,18 +350,14 @@ with st.sidebar:
             cid = clip["clip_id"]
             is_active = idx == ss.active_idx
 
-            # Keep clip navigation free of submitted decision values.
-            if ss.active_tab == "admin":
-                label = f"{'▶ ' if is_active else ''}{cid}"
+            is_reviewed = cid in my_ratings
+            if is_reviewed:
+                label = f"✓ {cid}"
+            elif is_active:
+                label = f"▶ {cid}"
             else:
-                if cid in my_ratings:
-                    label = f"✓ {cid}"
-                elif is_active:
-                    label = f"▶ {cid}"
-                else:
-                    label = cid
+                label = cid
 
-            is_reviewed = cid in my_ratings and ss.active_tab != "admin"
             btn_type = "primary" if is_reviewed else "secondary"
             if st.button(
                 label,
