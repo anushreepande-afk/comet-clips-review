@@ -232,6 +232,9 @@ def next_unrated_idx(
     # All rated — stay on current
     return current_idx
 
+def all_clips_rated(clips: List[Dict], my_ratings: Dict[str, int]) -> bool:
+    return bool(clips) and all(clip["clip_id"] in my_ratings for clip in clips)
+
 def _render_reviewer_row(row: Dict) -> None:
     rev_email: str = row["reviewer_email"]
     decision = decision_from_score(row.get("score"))
@@ -254,6 +257,30 @@ def _review_targets() -> List[Tuple[str, str]]:
                 targets.append((content_id, clip_type))
     return targets
 
+def _move_version(delta: int, rerun: bool = True) -> bool:
+    targets = _review_targets()
+    current_target = (ss.content_id, ss.clip_type)
+    if current_target not in targets:
+        ss.active_idx = 0
+        if rerun:
+            st.rerun()
+        return False
+
+    current_target_idx = targets.index(current_target)
+    next_target_idx = current_target_idx + (1 if delta > 0 else -1)
+    if not 0 <= next_target_idx < len(targets):
+        ss.active_idx = n_clips - 1 if delta > 0 else 0
+        if rerun:
+            st.rerun()
+        return False
+
+    ss.content_id, ss.clip_type = targets[next_target_idx]
+    target_clips = clips_for(ss.content_id, ss.clip_type)
+    ss.active_idx = 0 if delta > 0 else max(len(target_clips) - 1, 0)
+    if rerun:
+        st.rerun()
+    return True
+
 def _move_clip(delta: int, rerun: bool = True) -> None:
     if n_clips == 0:
         return
@@ -263,19 +290,7 @@ def _move_clip(delta: int, rerun: bool = True) -> None:
     elif delta < 0 and ss.active_idx > 0:
         ss.active_idx -= 1
     else:
-        targets = _review_targets()
-        current_target = (ss.content_id, ss.clip_type)
-        if current_target in targets:
-            current_target_idx = targets.index(current_target)
-            next_target_idx = current_target_idx + (1 if delta > 0 else -1)
-            if 0 <= next_target_idx < len(targets):
-                ss.content_id, ss.clip_type = targets[next_target_idx]
-                target_clips = clips_for(ss.content_id, ss.clip_type)
-                ss.active_idx = 0 if delta > 0 else max(len(target_clips) - 1, 0)
-            else:
-                ss.active_idx = n_clips - 1 if delta > 0 else 0
-        else:
-            ss.active_idx = 0
+        _move_version(delta, rerun=False)
 
     if rerun:
         st.rerun()
@@ -389,6 +404,14 @@ if n_clips == 0:
 # Clamp active_idx
 if ss.active_idx >= n_clips:
     ss.active_idx = 0
+
+if (
+    ss.active_idx == n_clips - 1
+    and clips[ss.active_idx]["clip_id"] in my_ratings
+    and all_clips_rated(clips, my_ratings)
+):
+    if _move_version(1, rerun=False):
+        st.rerun()
 
 clip = clips[ss.active_idx]
 clip_id: str = clip["clip_id"]
@@ -528,7 +551,10 @@ with col_panel:
             my_ratings[clip_id] = score_to_save
             ss[decision_key] = decision
             ss.flash = f"Saved — {decision}"
-            _move_clip(1, rerun=False)
+            if all_clips_rated(clips, my_ratings):
+                _move_version(1, rerun=False)
+            else:
+                ss.active_idx = next_unrated_idx(clips, my_ratings, ss.active_idx)
             st.rerun()
 
 # ── ADMIN SECTION ───────────────────────────────────────────────────────────
