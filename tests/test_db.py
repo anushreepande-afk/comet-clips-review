@@ -25,6 +25,9 @@ def test_build_upsert_payload():
         clip_type="momenttype",
         reviewer_email="test@jiostar.com",
         score=1,
+        feedback_text="Needs tighter ending.",
+        rejection_rating=4,
+        include_rejection_details=True,
         unique_clip_key="1260029222::momenttype::pro::clip1",
         clip_set_key="1260029222::momenttype::pro",
     )
@@ -33,7 +36,8 @@ def test_build_upsert_payload():
     assert payload["clip_type"]      == "momenttype"
     assert payload["reviewer_email"] == "test@jiostar.com"
     assert payload["score"]          == 1
-    assert "feedback_text" not in payload
+    assert payload["feedback_text"] == "Needs tighter ending."
+    assert payload["rejection_rating"] == 4
     assert payload["unique_clip_key"] == "1260029222::momenttype::pro::clip1"
     assert payload["clip_set_key"] == "1260029222::momenttype::pro"
 

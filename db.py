@@ -91,6 +91,8 @@ def _build_upsert_payload(
     reviewer_email: str,
     score: int,
     feedback_text: Optional[str] = None,
+    rejection_rating: Optional[int] = None,
+    include_rejection_details: bool = False,
     unique_clip_key: Optional[str] = None,
     clip_set_key: Optional[str] = None,
 ) -> Dict:
@@ -105,8 +107,10 @@ def _build_upsert_payload(
         payload["unique_clip_key"] = unique_clip_key
     if clip_set_key:
         payload["clip_set_key"] = clip_set_key
-    if feedback_text is not None:
+    if feedback_text is not None or include_rejection_details:
         payload["feedback_text"] = feedback_text
+    if rejection_rating is not None or include_rejection_details:
+        payload["rejection_rating"] = rejection_rating
     return payload
 
 
@@ -128,9 +132,10 @@ def _is_schema_error(exc: Exception) -> bool:
     return any(marker in message for marker in schema_markers)
 
 
-def _without_feedback(payload: Dict) -> Dict:
+def _without_rejection_details(payload: Dict) -> Dict:
     clean_payload = payload.copy()
     clean_payload.pop("feedback_text", None)
+    clean_payload.pop("rejection_rating", None)
     return clean_payload
 
 
@@ -146,6 +151,8 @@ def _upsert_legacy_rating(
     reviewer_email: str,
     score: int,
     feedback_text: Optional[str] = None,
+    rejection_rating: Optional[int] = None,
+    include_rejection_details: bool = False,
 ) -> None:
     payload = _build_upsert_payload(
         clip_id,
@@ -154,6 +161,8 @@ def _upsert_legacy_rating(
         reviewer_email,
         score,
         feedback_text=feedback_text,
+        rejection_rating=rejection_rating,
+        include_rejection_details=include_rejection_details,
     )
     match = {
         "clip_id": clip_id,
@@ -169,11 +178,11 @@ def _upsert_legacy_rating(
         ).execute()
         return
     except Exception as exc:
-        if feedback_text is None or not _is_schema_error(exc):
+        if (feedback_text is None and rejection_rating is None) or not _is_schema_error(exc):
             if not _is_schema_error(exc):
                 raise
         else:
-            payload = _without_feedback(payload)
+            payload = _without_rejection_details(payload)
             try:
                 _client().table("ratings").upsert(
                     payload,
@@ -187,6 +196,8 @@ def _upsert_legacy_rating(
     update_values = {"score": score}
     if "feedback_text" in payload:
         update_values["feedback_text"] = payload["feedback_text"]
+    if "rejection_rating" in payload:
+        update_values["rejection_rating"] = payload["rejection_rating"]
 
     try:
         update_resp = (
@@ -197,9 +208,12 @@ def _upsert_legacy_rating(
             .execute()
         )
     except Exception as exc:
-        if "feedback_text" not in update_values or not _is_schema_error(exc):
+        if (
+            "feedback_text" not in update_values
+            and "rejection_rating" not in update_values
+        ) or not _is_schema_error(exc):
             raise
-        payload = _without_feedback(payload)
+        payload = _without_rejection_details(payload)
         update_resp = (
             _client()
             .table("ratings")
@@ -214,10 +228,13 @@ def _upsert_legacy_rating(
     except Exception as exc:
         if _is_duplicate_error(exc):
             return
-        if "feedback_text" not in payload or not _is_schema_error(exc):
+        if (
+            "feedback_text" not in payload
+            and "rejection_rating" not in payload
+        ) or not _is_schema_error(exc):
             raise
         try:
-            _client().table("ratings").insert(_without_feedback(payload)).execute()
+            _client().table("ratings").insert(_without_rejection_details(payload)).execute()
         except Exception as retry_exc:
             if _is_duplicate_error(retry_exc):
                 return
@@ -232,6 +249,8 @@ def upsert_rating(
     score: int,
     clip: Optional[Dict] = None,
     feedback_text: Optional[str] = None,
+    rejection_rating: Optional[int] = None,
+    include_rejection_details: bool = False,
 ) -> None:
     unique_clip_key = build_unique_clip_key(content_id, clip_type, clip_id)
     clip_set_key = unique_clip_key.rsplit("::", 1)[0]
@@ -242,6 +261,8 @@ def upsert_rating(
         reviewer_email,
         score,
         feedback_text=feedback_text,
+        rejection_rating=rejection_rating,
+        include_rejection_details=include_rejection_details,
         unique_clip_key=unique_clip_key,
         clip_set_key=clip_set_key,
     )
@@ -258,7 +279,16 @@ def upsert_rating(
                     on_conflict="unique_clip_key",
                 ).execute()
             except Exception:
-                _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score, feedback_text)
+                _upsert_legacy_rating(
+                    clip_id,
+                    content_id,
+                    clip_type,
+                    reviewer_email,
+                    score,
+                    feedback_text,
+                    rejection_rating,
+                    include_rejection_details,
+                )
                 return
         try:
             _client().table("ratings").upsert(
@@ -266,14 +296,23 @@ def upsert_rating(
                 on_conflict="unique_clip_key,reviewer_email",
             ).execute()
         except Exception as exc:
-            if feedback_text is None or not _is_schema_error(exc):
+            if (feedback_text is None and rejection_rating is None) or not _is_schema_error(exc):
                 raise
             _client().table("ratings").upsert(
-                _without_feedback(rating_payload),
+                _without_rejection_details(rating_payload),
                 on_conflict="unique_clip_key,reviewer_email",
             ).execute()
     except Exception:
-        _upsert_legacy_rating(clip_id, content_id, clip_type, reviewer_email, score, feedback_text)
+        _upsert_legacy_rating(
+            clip_id,
+            content_id,
+            clip_type,
+            reviewer_email,
+            score,
+            feedback_text,
+            rejection_rating,
+            include_rejection_details,
+        )
 
 
 def fetch_ratings_for_tab(content_id: str, clip_type: str) -> List[Dict]:
@@ -281,7 +320,7 @@ def fetch_ratings_for_tab(content_id: str, clip_type: str) -> List[Dict]:
         resp = (
             _client()
             .table("ratings")
-            .select("clip_id,content_id,clip_type,reviewer_email,score,feedback_text,submitted_at")
+            .select("clip_id,content_id,clip_type,reviewer_email,score,feedback_text,rejection_rating,submitted_at")
             .eq("content_id", content_id)
             .eq("clip_type", clip_type)
             .execute()
@@ -321,7 +360,7 @@ def fetch_all_ratings() -> List[Dict]:
     page_size = 1000
     select_with_unique_key = (
         "unique_clip_key,clip_set_key,clip_id,content_id,clip_type,"
-        "reviewer_email,score,feedback_text,submitted_at"
+        "reviewer_email,score,feedback_text,rejection_rating,submitted_at"
     )
 
     while True:
@@ -379,17 +418,37 @@ def fetch_rating_summary() -> Dict[str, Dict[str, object]]:
         if row.get("score") is None:
             continue
         key = row.get("unique_clip_key") or build_unique_clip_key(row["content_id"], row["clip_type"], row["clip_id"])
-        groups = decision_groups.setdefault(key, {"accept_count": 0, "reject_count": 0, "total": 0})
+        groups = decision_groups.setdefault(
+            key,
+            {
+                "accept_count": 0,
+                "reject_count": 0,
+                "total": 0,
+                "rejection_rating_sum": 0,
+                "rejection_rating_count": 0,
+                "rejection_feedback_count": 0,
+            },
+        )
         if int(row["score"]) == 1:
             groups["accept_count"] += 1
         else:
             groups["reject_count"] += 1
+            if row.get("rejection_rating") is not None:
+                groups["rejection_rating_sum"] += int(row["rejection_rating"])
+                groups["rejection_rating_count"] += 1
+            if str(row.get("feedback_text") or "").strip():
+                groups["rejection_feedback_count"] += 1
         groups["total"] += 1
 
     return {
         key: {
             **counts,
             "acceptance_rate": round(counts["accept_count"] / counts["total"], 4) if counts["total"] else None,
+            "avg_rejection_rating": (
+                round(counts["rejection_rating_sum"] / counts["rejection_rating_count"], 2)
+                if counts["rejection_rating_count"]
+                else None
+            ),
         }
         for key, counts in decision_groups.items()
     }

@@ -22,14 +22,26 @@ def test_build_rating_export_workbook():
         "genre_cms": "Drama",
         "description": "A key moment.",
     }]
-    summary = {"1260029222::momenttype::pro::clip1": {"accept_count": 2, "reject_count": 1, "total": 3, "acceptance_rate": 0.6667}}
+    summary = {
+        "1260029222::momenttype::pro::clip1": {
+            "accept_count": 2,
+            "reject_count": 1,
+            "total": 3,
+            "acceptance_rate": 0.6667,
+            "rejection_rating_count": 1,
+            "avg_rejection_rating": 4,
+            "rejection_feedback_count": 1,
+        }
+    }
     ratings = [{
         "unique_clip_key": "1260029222::momenttype::pro::clip1",
         "content_id": "1260029222",
         "clip_type": "momenttype_pro",
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
-        "score": 1,
+        "score": 0,
+        "rejection_rating": 4,
+        "feedback_text": "Ending does not work.",
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
 
@@ -44,13 +56,18 @@ def test_build_rating_export_workbook():
     assert values[headers.index("Accept Count")] == 2
     assert values[headers.index("Reject Count")] == 1
     assert values[headers.index("Total Decisions")] == 3
+    assert values[headers.index("Rejection Rating Count")] == 1
+    assert values[headers.index("Average Rejection Rating")] == 4
+    assert values[headers.index("Rejection Feedback Count")] == 1
     assert "Individual Ratings" in wb.sheetnames
 
     detail_ws = wb["Individual Ratings"]
     detail_headers = [cell.value for cell in detail_ws[1]]
     detail_values = [cell.value for cell in detail_ws[2]]
     assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
-    assert detail_values[detail_headers.index("decision")] == "Accept"
+    assert detail_values[detail_headers.index("decision")] == "Reject"
+    assert detail_values[detail_headers.index("rejection_rating")] == 4
+    assert detail_values[detail_headers.index("rejection_feedback")] == "Ending does not work."
     assert detail_values[detail_headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
@@ -69,6 +86,8 @@ def test_build_individual_ratings_workbook():
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
         "score": 0,
+        "rejection_rating": 6,
+        "feedback_text": "Too slow.",
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
 
@@ -81,6 +100,8 @@ def test_build_individual_ratings_workbook():
     values = [cell.value for cell in ws[2]]
     assert values[headers.index("reviewer_email")] == "reviewer@jiostar.com"
     assert values[headers.index("decision")] == "Reject"
+    assert values[headers.index("rejection_rating")] == 6
+    assert values[headers.index("rejection_feedback")] == "Too slow."
     assert values[headers.index("clip_drive_link")] == "https://drive.google.com/file/d/abc/view"
 
 
@@ -95,14 +116,26 @@ def test_update_workbook_with_rating_summary(tmp_path):
     ws.append(["1260029222", "Example Movie", "V3", "clip1"])
     wb.save(source)
 
-    summary = {"1260029222::momenttype::pro::clip1": {"accept_count": 3, "reject_count": 1, "total": 4, "acceptance_rate": 0.75}}
+    summary = {
+        "1260029222::momenttype::pro::clip1": {
+            "accept_count": 3,
+            "reject_count": 1,
+            "total": 4,
+            "acceptance_rate": 0.75,
+            "rejection_rating_count": 1,
+            "avg_rejection_rating": 5,
+            "rejection_feedback_count": 1,
+        }
+    }
     ratings = [{
         "unique_clip_key": "1260029222::momenttype::pro::clip1",
         "content_id": "1260029222",
         "clip_type": "momenttype_pro",
         "clip_id": "clip1",
         "reviewer_email": "reviewer@jiostar.com",
-        "score": 1,
+        "score": 0,
+        "rejection_rating": 5,
+        "feedback_text": "Not strong enough.",
         "submitted_at": "2026-07-09T00:00:00Z",
     }]
     updated = update_workbook_with_rating_summary(source, output, summary, ratings)
@@ -116,10 +149,15 @@ def test_update_workbook_with_rating_summary(tmp_path):
     assert values[headers.index("Accept Count")] == 3
     assert values[headers.index("Reject Count")] == 1
     assert values[headers.index("Total Decisions")] == 4
+    assert values[headers.index("Rejection Rating Count")] == 1
+    assert values[headers.index("Average Rejection Rating")] == 5
+    assert values[headers.index("Rejection Feedback Count")] == 1
     assert "Individual Ratings" in out_wb.sheetnames
 
     detail_ws = out_wb["Individual Ratings"]
     detail_headers = [cell.value for cell in detail_ws[1]]
     detail_values = [cell.value for cell in detail_ws[2]]
     assert detail_values[detail_headers.index("reviewer_email")] == "reviewer@jiostar.com"
-    assert detail_values[detail_headers.index("decision")] == "Accept"
+    assert detail_values[detail_headers.index("decision")] == "Reject"
+    assert detail_values[detail_headers.index("rejection_rating")] == 5
+    assert detail_values[detail_headers.index("rejection_feedback")] == "Not strong enough."

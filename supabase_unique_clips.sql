@@ -68,7 +68,8 @@ alter table public.clips
 alter table public.ratings
     add column if not exists clip_set_key text,
     add column if not exists unique_clip_key text,
-    add column if not exists feedback_text text;
+    add column if not exists feedback_text text,
+    add column if not exists rejection_rating integer;
 
 -- Accept/Reject mode stores Accept as 1 and Reject as 0. Older deployments may
 -- still have a 1-10 score check, which blocks Reject decisions.
@@ -105,6 +106,19 @@ begin
         alter table public.ratings
             add constraint ratings_score_binary_check
             check (score in (0, 1));
+    end if;
+end $$;
+
+do $$
+begin
+    if not exists (
+        select 1
+        from pg_constraint
+        where conname = 'ratings_rejection_rating_check'
+    ) then
+        alter table public.ratings
+            add constraint ratings_rejection_rating_check
+            check (rejection_rating is null or rejection_rating between 1 and 10);
     end if;
 end $$;
 

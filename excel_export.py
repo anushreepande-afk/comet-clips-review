@@ -47,9 +47,21 @@ EXPORT_HEADERS = [
     "Reject Count",
     "Total Decisions",
     "Acceptance Rate",
+    "Rejection Rating Count",
+    "Average Rejection Rating",
+    "Rejection Feedback Count",
 ]
 
-RATING_EXPORT_COLUMNS = ["Unique Clip Key", "Accept Count", "Reject Count", "Total Decisions", "Acceptance Rate"]
+RATING_EXPORT_COLUMNS = [
+    "Unique Clip Key",
+    "Accept Count",
+    "Reject Count",
+    "Total Decisions",
+    "Acceptance Rate",
+    "Rejection Rating Count",
+    "Average Rejection Rating",
+    "Rejection Feedback Count",
+]
 
 INDIVIDUAL_RATING_HEADERS = [
     "unique_clip_key",
@@ -60,6 +72,8 @@ INDIVIDUAL_RATING_HEADERS = [
     "clip_drive_link",
     "reviewer_email",
     "decision",
+    "rejection_rating",
+    "rejection_feedback",
     "submitted_at",
 ]
 
@@ -110,6 +124,9 @@ def _style_sheet(ws) -> None:
         "J": 14,
         "K": 16,
         "L": 16,
+        "M": 22,
+        "N": 24,
+        "O": 24,
     }
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
@@ -130,13 +147,18 @@ def _style_individual_ratings_sheet(ws) -> None:
         "F": 48,
         "G": 30,
         "H": 14,
-        "I": 22,
+        "I": 18,
+        "J": 42,
+        "K": 22,
     }
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
 
-def _summary_values(rating_summary: Dict[str, Dict], unique_clip_key: str) -> tuple[int, int, int, Optional[float]]:
+def _summary_values(
+    rating_summary: Dict[str, Dict],
+    unique_clip_key: str,
+) -> tuple[int, int, int, Optional[float], int, Optional[float], int]:
     summary = rating_summary.get(unique_clip_key) or {}
     accepts = int(summary.get("accept_count") or summary.get("accepts") or 0)
     rejects = int(summary.get("reject_count") or summary.get("rejects") or 0)
@@ -144,7 +166,10 @@ def _summary_values(rating_summary: Dict[str, Dict], unique_clip_key: str) -> tu
     rate = summary.get("acceptance_rate")
     if rate is None and total:
         rate = round(accepts / total, 4)
-    return accepts, rejects, total, rate
+    rejection_rating_count = int(summary.get("rejection_rating_count") or 0)
+    avg_rejection_rating = summary.get("avg_rejection_rating")
+    rejection_feedback_count = int(summary.get("rejection_feedback_count") or 0)
+    return accepts, rejects, total, rate, rejection_rating_count, avg_rejection_rating, rejection_feedback_count
 
 
 def _decision_from_score(score: object) -> str:
@@ -197,6 +222,8 @@ def _append_individual_ratings_sheet(wb, clip_meta: Dict[str, Dict], ratings: It
             meta.get("clip_drive_link", ""),
             rating.get("reviewer_email", ""),
             rating.get("decision") or _decision_from_score(rating.get("score")),
+            rating.get("rejection_rating", "") if _decision_from_score(rating.get("score")) == "Reject" else "",
+            rating.get("feedback_text", "") if _decision_from_score(rating.get("score")) == "Reject" else "",
             rating.get("submitted_at", ""),
         ])
         link_cell = ws.cell(row=ws.max_row, column=6)
@@ -236,7 +263,15 @@ def build_rating_export_workbook(
 
         for clip in rows:
             unique_clip_key = build_unique_clip_key(clip["content_id"], clip["clip_type"], clip["clip_id"])
-            accepts, rejects, total, acceptance_rate = _summary_values(rating_summary, unique_clip_key)
+            (
+                accepts,
+                rejects,
+                total,
+                acceptance_rate,
+                rejection_rating_count,
+                avg_rejection_rating,
+                rejection_feedback_count,
+            ) = _summary_values(rating_summary, unique_clip_key)
             ws.append([
                 clip["content_id"],
                 clip.get("content_name", ""),
@@ -250,6 +285,9 @@ def build_rating_export_workbook(
                 rejects,
                 total,
                 acceptance_rate,
+                rejection_rating_count,
+                avg_rejection_rating,
+                rejection_feedback_count,
             ])
             link_cell = ws.cell(row=ws.max_row, column=6)
             if link_cell.value:
@@ -360,6 +398,9 @@ def update_workbook_with_rating_summary(
         reject_col = _ensure_column(ws, headers, RATING_EXPORT_COLUMNS[2])
         total_col = _ensure_column(ws, headers, RATING_EXPORT_COLUMNS[3])
         rate_col = _ensure_column(ws, headers, RATING_EXPORT_COLUMNS[4])
+        rejection_rating_count_col = _ensure_column(ws, headers, RATING_EXPORT_COLUMNS[5])
+        avg_rejection_rating_col = _ensure_column(ws, headers, RATING_EXPORT_COLUMNS[6])
+        rejection_feedback_count_col = _ensure_column(ws, headers, RATING_EXPORT_COLUMNS[7])
 
         for header_cell in ws[1]:
             header_cell.font = Font(bold=True)
@@ -374,7 +415,15 @@ def update_workbook_with_rating_summary(
             if not clip_type:
                 continue
             unique_clip_key = build_unique_clip_key(content_id, clip_type, clip_id)
-            accepts, rejects, total, acceptance_rate = _summary_values(rating_summary, unique_clip_key)
+            (
+                accepts,
+                rejects,
+                total,
+                acceptance_rate,
+                rejection_rating_count,
+                avg_rejection_rating,
+                rejection_feedback_count,
+            ) = _summary_values(rating_summary, unique_clip_key)
             output_set = _cell_value(row, headers, "output_set", "output_label") or OUTPUT_SET_LABELS.get(clip_type, clip_type)
             clip_meta[unique_clip_key] = {
                 "content_id": content_id,
@@ -389,9 +438,21 @@ def update_workbook_with_rating_summary(
             ws.cell(row=row[0].row, column=reject_col, value=rejects)
             ws.cell(row=row[0].row, column=total_col, value=total)
             ws.cell(row=row[0].row, column=rate_col, value=acceptance_rate)
+            ws.cell(row=row[0].row, column=rejection_rating_count_col, value=rejection_rating_count)
+            ws.cell(row=row[0].row, column=avg_rejection_rating_col, value=avg_rejection_rating)
+            ws.cell(row=row[0].row, column=rejection_feedback_count_col, value=rejection_feedback_count)
             updated_rows += 1
 
-        for col_idx in [unique_key_col, accept_col, reject_col, total_col, rate_col]:
+        for col_idx in [
+            unique_key_col,
+            accept_col,
+            reject_col,
+            total_col,
+            rate_col,
+            rejection_rating_count_col,
+            avg_rejection_rating_col,
+            rejection_feedback_count_col,
+        ]:
             ws.column_dimensions[get_column_letter(col_idx)].width = 18 if col_idx != unique_key_col else 38
 
     if ratings is not None:

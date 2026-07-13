@@ -203,6 +203,7 @@ _defaults: Dict = {
     "active_idx": default_active_idx,
     "flash":      None,
     "active_tab": "reviewer",
+    "pending_reject_key": None,
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -223,6 +224,12 @@ def decision_from_score(score: Optional[int]) -> str:
     if score is None:
         return ""
     return "Accept" if int(score) == ACCEPT_SCORE else "Reject"
+
+def _advance_after_submit(clips: List[Dict], my_ratings: Dict[str, int]) -> None:
+    if all_clips_rated(clips, my_ratings):
+        _move_version(1, rerun=False)
+    else:
+        ss.active_idx = next_unrated_idx(clips, my_ratings, ss.active_idx)
 
 def badge_html(decision: str) -> str:
     css = "badge-accept" if decision == "Accept" else "badge-reject"
@@ -291,13 +298,33 @@ def _render_reviewer_row(row: Dict) -> None:
     rev_name = rev_email.split("@")[0]
     safe_rev_name = html.escape(rev_name)
     safe_rev_email = html.escape(rev_email)
+    rejection_detail = ""
+    if decision == "Reject":
+        detail_parts = []
+        if row.get("rejection_rating") is not None:
+            detail_parts.append(f"Rating {html.escape(str(row['rejection_rating']))}/10")
+        if str(row.get("feedback_text") or "").strip():
+            detail_parts.append(html.escape(str(row["feedback_text"]).strip()))
+        if detail_parts:
+            rejection_detail = (
+                f'<div style="color:#9ca3af; font-size:0.76rem; margin:-2px 0 6px 0;">'
+                f'{" · ".join(detail_parts)}'
+                f'</div>'
+            )
     st.markdown(
         f'<div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">'
         f'<span style="color:#d1d5db; font-size:0.82rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{safe_rev_email}">{safe_rev_name}</span>'
         f'{badge_html(decision)}'
-        f'</div>',
+        f'</div>'
+        f'{rejection_detail}',
         unsafe_allow_html=True,
     )
+
+def _rating_for_current_user(all_ratings: List[Dict], email: str, clip_id: str) -> Dict:
+    for row in all_ratings:
+        if row.get("reviewer_email", "").lower() == email.lower() and row.get("clip_id") == clip_id:
+            return row
+    return {}
 
 def _review_targets() -> List[Tuple[str, str]]:
     targets: List[Tuple[str, str]] = []
@@ -361,11 +388,25 @@ if n_clips > 0:
     all_ratings = fetch_ratings_for_tab(ss.content_id, ss.clip_type)
     for r in all_ratings:
         if r["content_id"] == ss.content_id and r["clip_type"] == ss.clip_type:
-            row = decision_summary.setdefault(r["clip_id"], {"accept": 0, "reject": 0})
+            row = decision_summary.setdefault(
+                r["clip_id"],
+                {
+                    "accept": 0,
+                    "reject": 0,
+                    "rejection_rating_sum": 0,
+                    "rejection_rating_count": 0,
+                    "rejection_feedback_count": 0,
+                },
+            )
             if int(r["score"]) == ACCEPT_SCORE:
                 row["accept"] += 1
             else:
                 row["reject"] += 1
+                if r.get("rejection_rating") is not None:
+                    row["rejection_rating_sum"] += int(r["rejection_rating"])
+                    row["rejection_rating_count"] += 1
+                if str(r.get("feedback_text") or "").strip():
+                    row["rejection_feedback_count"] += 1
 
 # ---------------------------------------------------------------------------
 # Sidebar
@@ -575,15 +616,77 @@ with col_panel:
         unsafe_allow_html=True,
     )
 
+    current_rating_row = _rating_for_current_user(all_ratings, email, clip_id)
+    reject_form_key = f"{ss.content_id}:{ss.clip_type}:{clip_id}"
     decision_cols = st.columns(2, gap="small")
-    actions = [("Accept", ACCEPT_SCORE), ("Reject", REJECT_SCORE)]
-    for col, (decision, score_to_save) in zip(decision_cols, actions):
-        if col.button(
-            decision,
-            key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_{decision.lower()}",
-            type="primary" if decision == "Accept" else "secondary",
+    if decision_cols[0].button(
+        "Accept",
+        key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_accept",
+        type="primary",
+        use_container_width=True,
+        help="Save this clip as Accept and move to the next clip.",
+    ):
+        try:
+            upsert_rating(
+                clip_id,
+                ss.content_id,
+                ss.clip_type,
+                email,
+                ACCEPT_SCORE,
+                clip=clip,
+                feedback_text=None,
+                rejection_rating=None,
+                include_rejection_details=True,
+            )
+        except Exception:
+            st.error("Could not save this decision. Please check Supabase configuration.")
+            st.stop()
+        my_ratings[clip_id] = ACCEPT_SCORE
+        ss[decision_key] = "Accept"
+        ss.pending_reject_key = None
+        ss.flash = "Saved — Accept"
+        _advance_after_submit(clips, my_ratings)
+        st.rerun()
+
+    if decision_cols[1].button(
+        "Reject",
+        key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_reject",
+        type="secondary",
+        use_container_width=True,
+        help="Add rejection rating and feedback before saving this clip as Reject.",
+    ):
+        ss.pending_reject_key = reject_form_key
+        st.rerun()
+
+    if ss.pending_reject_key == reject_form_key:
+        st.markdown('<div class="rating-heading">Rejection details</div>', unsafe_allow_html=True)
+        existing_rejection_rating = current_rating_row.get("rejection_rating") or 1
+        try:
+            existing_rejection_rating = int(existing_rejection_rating)
+        except Exception:
+            existing_rejection_rating = 1
+        existing_rejection_rating = min(max(existing_rejection_rating, 1), 10)
+        rejection_rating = st.select_slider(
+            "Rate this rejected clip",
+            options=list(range(1, 11)),
+            value=existing_rejection_rating,
+            key=f"reject_rating_{ss.content_id}_{ss.clip_type}_{clip_id}",
+            help="Choose a 1-10 rating to capture rejection severity/context.",
+        )
+        rejection_feedback = st.text_area(
+            "Feedback on rejection",
+            value=current_rating_row.get("feedback_text") or "",
+            key=f"reject_feedback_{ss.content_id}_{ss.clip_type}_{clip_id}",
+            placeholder="Add feedback for why this clip was rejected.",
+            height=110,
+        )
+        form_cols = st.columns(2, gap="small")
+        if form_cols[0].button(
+            "Submit rejection",
+            key=f"submit_reject_{ss.content_id}_{ss.clip_type}_{clip_id}",
+            type="primary",
             use_container_width=True,
-            help=f"Save this clip as {decision} and move to the next clip.",
+            help="Save Reject with the 1-10 rating and feedback.",
         ):
             try:
                 upsert_rating(
@@ -591,22 +694,31 @@ with col_panel:
                     ss.content_id,
                     ss.clip_type,
                     email,
-                    score_to_save,
+                    REJECT_SCORE,
                     clip=clip,
+                    feedback_text=rejection_feedback.strip() or None,
+                    rejection_rating=int(rejection_rating),
+                    include_rejection_details=True,
                 )
             except Exception:
                 st.error(
-                    "Could not save this decision. If Reject is failing, run the updated "
-                    "Supabase setup SQL so decisions can be stored as Accept = 1 and Reject = 0."
+                    "Could not save this rejection. Please rerun the updated Supabase SQL "
+                    "so rejection_rating and feedback_text can be stored."
                 )
                 st.stop()
-            my_ratings[clip_id] = score_to_save
-            ss[decision_key] = decision
-            ss.flash = f"Saved — {decision}"
-            if all_clips_rated(clips, my_ratings):
-                _move_version(1, rerun=False)
-            else:
-                ss.active_idx = next_unrated_idx(clips, my_ratings, ss.active_idx)
+            my_ratings[clip_id] = REJECT_SCORE
+            ss[decision_key] = "Reject"
+            ss.pending_reject_key = None
+            ss.flash = "Saved — Reject"
+            _advance_after_submit(clips, my_ratings)
+            st.rerun()
+        if form_cols[1].button(
+            "Cancel",
+            key=f"cancel_reject_{ss.content_id}_{ss.clip_type}_{clip_id}",
+            use_container_width=True,
+            help="Close rejection details without saving.",
+        ):
+            ss.pending_reject_key = None
             st.rerun()
 
 # ── ADMIN SECTION ───────────────────────────────────────────────────────────
@@ -659,15 +771,31 @@ if admin:
             )
 
             # Decision summary
-            summary = decision_summary.get(clip_id, {"accept": 0, "reject": 0})
+            summary = decision_summary.get(
+                clip_id,
+                {
+                    "accept": 0,
+                    "reject": 0,
+                    "rejection_rating_sum": 0,
+                    "rejection_rating_count": 0,
+                    "rejection_feedback_count": 0,
+                },
+            )
             total_decisions = summary["accept"] + summary["reject"]
             acceptance_rate = round(summary["accept"] / total_decisions * 100) if total_decisions else 0
+            avg_rejection_rating = (
+                round(summary["rejection_rating_sum"] / summary["rejection_rating_count"], 1)
+                if summary["rejection_rating_count"]
+                else None
+            )
             st.markdown('<div class="section-label" style="margin-top:12px;">Decision summary</div>', unsafe_allow_html=True)
             st.markdown(
                 f'<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">'
                 f'<span class="badge-accept">Accept {summary["accept"]}</span>'
                 f'<span class="badge-reject">Reject {summary["reject"]}</span>'
                 f'<span style="color:#9ca3af; font-size:0.85rem;">Acceptance: <strong style="color:#f0f0f0;">{acceptance_rate}%</strong></span>'
+                f'<span style="color:#9ca3af; font-size:0.85rem;">Avg rejection rating: <strong style="color:#f0f0f0;">{avg_rejection_rating if avg_rejection_rating is not None else "—"}</strong></span>'
+                f'<span style="color:#9ca3af; font-size:0.85rem;">Feedback: <strong style="color:#f0f0f0;">{summary["rejection_feedback_count"]}</strong></span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
