@@ -600,6 +600,9 @@ with col_panel:
     safe_desc = html.escape(clip.get("description", ""))
     st.markdown(f'<div class="desc-text">{safe_desc}</div>', unsafe_allow_html=True)
 
+    current_rating_row = _rating_for_current_user(all_ratings, email, clip_id)
+    reject_form_key = f"{ss.content_id}:{ss.clip_type}:{clip_id}"
+
     # Current decision badge (if already reviewed)
     existing_score: Optional[int] = my_ratings.get(clip_id)
     if existing_score is not None:
@@ -616,8 +619,33 @@ with col_panel:
         unsafe_allow_html=True,
     )
 
-    current_rating_row = _rating_for_current_user(all_ratings, email, clip_id)
-    reject_form_key = f"{ss.content_id}:{ss.clip_type}:{clip_id}"
+    if (
+        existing_score is not None
+        and decision_from_score(existing_score) == "Reject"
+        and ss.pending_reject_key != reject_form_key
+    ):
+        saved_rejection_rating = current_rating_row.get("rejection_rating")
+        saved_feedback = str(current_rating_row.get("feedback_text") or "").strip()
+        st.markdown('<div class="section-label" style="margin-top:10px;">Saved rejection details</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="color:#d1d5db;font-size:0.9rem;line-height:1.5;">'
+            f'<strong>Rating:</strong> {html.escape(str(saved_rejection_rating)) + "/10" if saved_rejection_rating is not None else "—"}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        if saved_feedback:
+            st.markdown(
+                f'<div style="color:#d1d5db;font-size:0.9rem;line-height:1.5;margin-top:4px;">'
+                f'<strong>Feedback:</strong> {html.escape(saved_feedback)}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="color:#6b7280;font-size:0.86rem;line-height:1.5;margin-top:4px;">No feedback entered.</div>',
+                unsafe_allow_html=True,
+            )
+
     decision_cols = st.columns(2, gap="small")
     if decision_cols[0].button(
         "Accept",
