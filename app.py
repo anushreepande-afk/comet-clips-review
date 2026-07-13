@@ -646,11 +646,15 @@ with col_panel:
                 unsafe_allow_html=True,
             )
 
+    selected_decision = decision_from_score(existing_score) if existing_score is not None else ""
+    reject_selected = ss.pending_reject_key == reject_form_key or selected_decision == "Reject"
+    accept_selected = selected_decision == "Accept" and not reject_selected
+
     decision_cols = st.columns(2, gap="small")
     if decision_cols[0].button(
         "Accept",
         key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_accept",
-        type="primary",
+        type="primary" if accept_selected else "secondary",
         use_container_width=True,
         help="Save this clip as Accept and move to the next clip.",
     ):
@@ -679,7 +683,7 @@ with col_panel:
     if decision_cols[1].button(
         "Reject",
         key=f"decision_{ss.content_id}_{ss.clip_type}_{clip_id}_reject",
-        type="secondary",
+        type="primary" if reject_selected else "secondary",
         use_container_width=True,
         help="Add rejection rating and feedback before saving this clip as Reject.",
     ):
