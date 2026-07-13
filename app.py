@@ -676,6 +676,9 @@ with col_panel:
         my_ratings[clip_id] = ACCEPT_SCORE
         ss[decision_key] = "Accept"
         ss.pending_reject_key = None
+        ss.suppress_reject_form_key = reject_form_key
+        ss.pop(f"reject_rating_{ss.content_id}_{ss.clip_type}_{clip_id}", None)
+        ss.pop(f"reject_feedback_{ss.content_id}_{ss.clip_type}_{clip_id}", None)
         ss.flash = "Saved — Accept"
         _advance_after_submit(clips, my_ratings)
         st.rerun()
@@ -688,9 +691,10 @@ with col_panel:
         help="Add rejection rating and feedback before saving this clip as Reject.",
     ):
         ss.pending_reject_key = reject_form_key
+        ss.suppress_reject_form_key = None
         st.rerun()
 
-    if ss.pending_reject_key == reject_form_key:
+    if ss.pending_reject_key == reject_form_key and ss.get("suppress_reject_form_key") != reject_form_key:
         st.markdown('<div class="rating-heading">Rejection details</div>', unsafe_allow_html=True)
         existing_rejection_rating = current_rating_row.get("rejection_rating") or 1
         try:
